@@ -237,6 +237,7 @@ const map = new maplibregl.Map({
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報</a>・<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査</a>を加工・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>' },
       cells: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      fine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       stores: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       areaDim: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       areaMine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -259,9 +260,11 @@ const map = new maplibregl.Map({
       { id: 'rail', type: 'line', source: 'gsi', 'source-layer': 'RailCL', filter: ['!=', ['get', 'vt_railstate'], '地下'], paint: { 'line-color': '#b4b8bf', 'line-width': 1.3 } },
       { id: 'bldg', type: 'fill', source: 'gsi', 'source-layer': 'BldA', minzoom: 14.5, paint: { 'fill-color': '#e1e0d9' } },
       { id: 'bldg-line', type: 'line', source: 'gsi', 'source-layer': 'BldA', minzoom: 15.5, paint: { 'line-color': '#c9c8bf', 'line-width': .8 } },
-      { id: 'heat', type: 'heatmap', source: 'cells', maxzoom: 16.5, layout: { visibility: 'none' },
+      { id: 'heat', type: 'heatmap', source: 'cells', maxzoom: 15, layout: { visibility: 'none' },
         paint: { 'heatmap-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, 6, 14, 340], 'heatmap-intensity': 1.3, 'heatmap-weight': 0,
-          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 15, .85, 16.5, 0] } },
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 13.5, .85, 14.5, 0] } },
+      // 拡大すると点の広がりが画面外に出て色が消えるので、500m四方の塗りに切り替えて色を残す
+      { id: 'shade', type: 'fill', source: 'fine', minzoom: 13.5, layout: { visibility: 'none' }, paint: { 'fill-opacity': 0, 'fill-antialias': false } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#1b2430', 'fill-opacity': .22 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1b2430', 'line-width': 2 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .92 } },
@@ -383,31 +386,42 @@ async function loadOverlayData() {
   meshCities = m.cities;
   meshRows = new Map();
   const cells = new Map(); // 1km区画のコード（500mコードの先頭8桁） → 世帯数と、距離の区分ごとの対象人口
+  const fine = [];
   for (const [code, hh, old, kids, city] of m.rows) {
     meshRows.set(code, [hh, old, city, kids]);
     const [x, y] = meshCorner(code);
     const key = code.slice(0, 8);
     const c = cells.get(key) || { hh: 0, old: [0, 0, 0], kids: [0, 0, 0] };
     const d = nearestStore(x + 1 / 320, y + 1 / 480).meters;
+    const f = band(d, FAR_BANDS), k = band(d, CAR_BANDS);
     c.hh += hh;
-    c.old[band(d, FAR_BANDS)] += old;
-    c.kids[band(d, CAR_BANDS)] += kids;
+    c.old[f] += old;
+    c.kids[k] += kids;
     cells.set(key, c);
+    fine.push({ key, x, y, f, k });
   }
   const sum = a => a.reduce((n, v) => n + v, 0);
-  const level = (a, min) => sum(a) >= min ? a.indexOf(Math.max(...a)) : 0;
+  const NONE = 9; // 対象の人が少ない区画
+  const level = (a, min) => sum(a) >= min ? a.indexOf(Math.max(...a)) : NONE;
   const features = [...cells].map(([key, c]) => {
     const [x, y] = meshCorner(key + '1');
     return { type: 'Feature', geometry: { type: 'Point', coordinates: [x + 1 / 160, y + 1 / 240] },
       properties: { h: band(c.hh, HH_BANDS), f: level(c.old, OLD_MIN), k: level(c.kids, KID_MIN) } };
   });
+  const w = 1 / 160, h = 1 / 240;
+  map.getSource('fine').setData({ type: 'FeatureCollection', features: fine.map(r => {
+    const c = cells.get(r.key);
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[r.x, r.y], [r.x + w, r.y], [r.x + w, r.y + h], [r.x, r.y + h], [r.x, r.y]]] },
+      properties: { h: band(c.hh, HH_BANDS), f: sum(c.old) >= OLD_MIN ? r.f : NONE, k: sum(c.kids) >= KID_MIN ? r.k : NONE } };
+  }) });
   map.getSource('cells').setData({ type: 'FeatureCollection', features });
   map.getSource('stores').setData({ type: 'FeatureCollection', features: storeList.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s[0], s[1]] }, properties: { name: s[2] || '' } })) });
 }
+// 世帯数は多いほど濃く、スーパーまでの距離は近いほど濃く、遠いほど薄くする
 const HEAT = {
-  hh: { key: 'h', rgb: '79,70,229', low: '300世帯〜', high: '1,000世帯〜', stores: false },
-  far: { key: 'f', rgb: '234,88,12', low: '店まで500m〜', high: '店まで1km〜', stores: true },
-  car: { key: 'k', rgb: '219,39,119', low: '店まで3km〜', high: '店まで5km〜', stores: true }
+  hh: { key: 'h', rgb: '79,70,229', weight: [1, .3, 2, 1], shade: [1, .2, 2, .5], low: '300世帯〜', high: '1,000世帯〜', stores: false },
+  far: { key: 'f', rgb: '234,88,12', weight: [0, 1, 1, .5, 2, .22], shade: [0, .55, 1, .32, 2, .13], low: '遠い（1km〜）', high: '近い（500m未満）', stores: true },
+  car: { key: 'k', rgb: '219,39,119', weight: [0, 1, 1, .5, 2, .22], shade: [0, .55, 1, .32, 2, .13], low: '遠い（5km〜）', high: '近い（3km未満）', stores: true }
 };
 function setOverlay(o) {
   overlay = o;
@@ -416,11 +430,13 @@ function setOverlay(o) {
   $('ovFar').setAttribute('aria-pressed', o === 'far');
   $('ovCar').setAttribute('aria-pressed', o === 'car');
   const h = HEAT[o];
-  map.setLayoutProperty('heat', 'visibility', h ? 'visible' : 'none');
+  ['heat', 'shade'].forEach(l => map.setLayoutProperty(l, 'visibility', h ? 'visible' : 'none'));
   ['store-dot', 'store-name'].forEach(l => map.setLayoutProperty(l, 'visibility', h && h.stores ? 'visible' : 'none'));
   if (!h) { $('legendExtra').innerHTML = ''; return; }
-  map.setPaintProperty('heat', 'heatmap-weight', ['match', ['get', h.key], 1, .3, 2, 1, 0]);
+  map.setPaintProperty('heat', 'heatmap-weight', ['match', ['get', h.key], ...h.weight, 0]);
   map.setPaintProperty('heat', 'heatmap-color', ['interpolate', ['linear'], ['heatmap-density'], 0, `rgba(${h.rgb},0)`, .12, `rgba(${h.rgb},.2)`, .45, `rgba(${h.rgb},.45)`, 1, `rgba(${h.rgb},.78)`]);
+  map.setPaintProperty('shade', 'fill-color', `rgb(${h.rgb})`);
+  map.setPaintProperty('shade', 'fill-opacity', ['interpolate', ['linear'], ['zoom'], 13.5, 0, 14.5, ['match', ['get', h.key], ...h.shade, 0]]);
   $('legendExtra').innerHTML = `<span class="bar" style="background:linear-gradient(90deg,rgba(${h.rgb},.14),rgba(${h.rgb},.72))"></span><span class="ends"><span>${h.low}</span><span>${h.high}</span></span>${h.stores ? '<span class="st"><i></i>スーパー</span>' : ''}`;
 }
 function nearInfoOn() { try { return localStorage.getItem(NEAR_INFO_KEY) !== 'off'; } catch (e) { return true; } }
@@ -650,12 +666,12 @@ function openMenu() {
     <div class="field"><span>高齢者×徒歩</span><button class="sw" id="swFar" aria-pressed="${overlay === 'far'}">${overlay === 'far' ? 'ON' : 'OFF'}</button></div>
     <div class="field"><span>子育て×車</span><button class="sw" id="swCar" aria-pressed="${overlay === 'car'}">${overlay === 'car' ? 'ON' : 'OFF'}</button></div>
     <div class="field"><span>家を押したときの周辺情報</span><button class="sw" id="swNear" aria-pressed="${nearInfoOn()}">${nearInfoOn() ? 'ON' : 'OFF'}</button></div>
-    <p class="note">高齢者×徒歩と子育て×車は、対象の人が多い区画だけに色が付きます。</p>
+    <p class="note">高齢者×徒歩と子育て×車は、対象の人が多い区画だけに色が付きます。色が濃いほどスーパーに近く、薄いほど遠い場所です。</p>
     <h3>データの根拠</h3>
     <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を1km四方に集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。濃さの区切りは分布から決めました。300世帯以上は区画の上位21%で世帯の78%、1,000世帯以上は上位7%で世帯の47%が住んでいます。<br>
     スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けがあります。コンビニとドラッグストアは含みません。住所の一部は町名までの位置です。<br>
     高齢者×徒歩：65歳以上が150人以上の1km四方に色を付けます（上位30%の区画に65歳以上の82%が住んでいます）。500mは農林水産政策研究所の食料品アクセスの基準、1kmは高齢者福祉施設の圏域に使われる距離です。車を使えるかの情報はないので、実際に車を使えない人の場所を示すものではありません。<br>
-    子育て×車：15歳未満が50人以上の1km四方に色を付けます（上位28%の区画に15歳未満の89%が住んでいます）。車の距離に公的な基準はないので、3kmと5kmは県内の15歳未満のうち店から遠い側の約8%と約3%にあたる目安です。子どもの人数の統計で、世帯数ではありません。距離はどちらも直線で、道のりはこれより長くなります</p>
+    子育て×車：15歳未満が50人以上の1km四方に色を付けます（上位28%の区画に15歳未満の89%が住んでいます）。車の距離に公的な基準はないので、3kmと5kmは県内の15歳未満のうち店から遠い側の約8%と約3%にあたる目安です。2020年時点の0〜14歳の人数を区画ごとに数えたもので、家ごとの情報でも、子どものいる世帯の数でもありません。距離はどちらも直線で、道のりはこれより長くなります</p>
     <h3>バックアップ</h3>
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
