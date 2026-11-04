@@ -307,7 +307,7 @@ const map = new maplibregl.Map({
       // 拡大すると点の広がりが画面外に出て色が消えるので、500m四方の塗りに切り替えて色を残す
       { id: 'shade', type: 'fill', source: 'fine', minzoom: 13.5, layout: { visibility: 'none' }, paint: { 'fill-opacity': 0, 'fill-antialias': false } },
       { id: 'town-fill', type: 'fill', source: 'towns', layout: { visibility: 'none' },
-        paint: { 'fill-color': ['get', 'c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .62, 'B', .55, 'C', .22, '保留', .24, 0], 18, ['match', ['get', 'lv'], 'A', .34, 'B', .3, 'C', .14, '保留', .15, 0]] } },
+        paint: { 'fill-color': ['get', 'c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .66, 'B', .42, 'C', .2, '保留', .24, 0], 18, ['match', ['get', 'lv'], 'A', .36, 'B', .25, 'C', .13, '保留', .15, 0]] } },
       { id: 'town-line', type: 'line', source: 'towns', layout: { visibility: 'none' }, filter: ['!=', ['get', 'lv'], ''], paint: { 'line-color': ['get', 'c'], 'line-width': ['match', ['get', 'lv'], 'A', 1.8, 1] } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#1b2430', 'fill-opacity': .22 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1b2430', 'line-width': 2 } },
@@ -553,6 +553,7 @@ async function areaHouseholds() {
    町の順位などの計画は公開せず、合言葉で暗号化した data/priority.enc.json に置く。
    復号した内容はこの端末の中だけに保存する。公開される data/towns.json は町名と形だけ。 */
 const PRI_ORDER = ['A', 'B', 'C', '保留', 'その他'];
+const PRI_NAME = { A: '高', B: '中', C: '低', 保留: '保留', その他: 'なし' }; // 画面ではこの表記を使う
 // 色は優先の理由、濃さは優先度。文章は暗号データの数字から組み立て、計画の説明は公開ファイルに書かない
 const GROUPS = { child: { name: '子育て', color: '#db2777' }, old: { name: '高齢者', color: '#ea580c' }, far: { name: '山間', color: '#65801f' }, hold: { name: '保留', color: '#667085' }, none: { name: 'その他', color: '#c4c7cc' } };
 const BASE_CHILD = 21.6, BASE_OLD = 46.0; // 松阪市全体の率（国勢調査2020年）
@@ -602,12 +603,22 @@ function setPrioData(d) {
   prioRev = d.rev;
   prioMade = d.作成日 || '';
 }
+// 見えている町の中での番号。優先度の高い順で、同じ優先度の中は分析の順位の順
+function townOrder() {
+  const order = new Map();
+  if (!prio) return order;
+  [...prio.keys()].map(k => townRow(k)).filter(r => r.配達可否 !== '配達不可' && inFilter(r) && 'ABC'.includes(r.優先度))
+    .sort((a, b) => a.優先度.localeCompare(b.優先度) || (a.順位 || 999) - (b.順位 || 999))
+    .forEach((r, i) => order.set(townKey(r), i + 1));
+  return order;
+}
 function drawTowns() {
   if (!townGeo) return;
+  const order = townOrder();
   const features = townGeo.features.map(f => {
     const r = prio ? townRow(f.properties.t) : null;
     const show = r && r.配達可否 !== '配達不可' && inFilter(r);
-    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', c: show ? GROUPS[groupOf(r)].color : '#000000', label: show ? `${r.順位 ? r.順位 + ' ' : ''}${r.町}` : '' } };
+    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', c: show ? GROUPS[groupOf(r)].color : '#000000', label: show ? `${order.has(f.properties.t) ? order.get(f.properties.t) + ' ' : ''}${r.町}` : '' } };
   });
   map.getSource('towns').setData({ type: 'FeatureCollection', features });
 }
@@ -619,7 +630,7 @@ function setPrioFilter(next) {
 }
 function priLegend() {
   const b = (g, label, color) => `<button data-pgroup="${g}" aria-pressed="${prioFilter.group === g}">${color ? `<i style="background:${color}"></i>` : ''}${label}</button>`;
-  return `<span class="pgroups">${b('', 'すべて')}${['child', 'old', 'far'].map(g => b(g, GROUPS[g].name, GROUPS[g].color)).join('')}</span><span class="st" style="margin-top:5px">濃いほど優先度が高い・数字は順位</span>`;
+  return `<span class="pgroups">${b('', 'すべて')}${['child', 'old', 'far'].map(g => b(g, GROUPS[g].name, GROUPS[g].color)).join('')}</span><span class="st" style="margin-top:5px">濃いほど優先度が高い・数字は配る順の目安</span>`;
 }
 async function loadTowns() {
   try {
@@ -729,11 +740,11 @@ function openTown(k, back) {
   const changed = r.優先度 !== r.初期優先度;
   openSheet(`
     <h2>${esc(townLabel(r))}</h2>
-    <p class="sub">優先度${esc(r.優先度)}${changed ? `（初期値は${esc(r.初期優先度)}）` : ''}・${esc(r.区分)}${r.順位 ? `・順位${r.順位}` : ''}</p>
+    <p class="sub">優先度 ${PRI_NAME[r.優先度]}${changed ? `（初期値は${PRI_NAME[r.初期優先度]}）` : ''}${['child', 'old', 'far'].includes(groupOf(r)) ? `・${GROUPS[groupOf(r)].name}` : ''}${townOrder().get(k) ? `・${townOrder().get(k)}番目` : ''}</p>
     <div class="reason">${reasonOf(r)}</div>
     ${r.配達可否 === '配達不可' ? '<p><span class="badge">配達不可のため配布候補から除外中</span></p>' : ''}
     <div class="field"><span>配達可否</span><select id="tDel" aria-label="配達可否">${DELIVERY.map(v => `<option ${v === r.配達可否 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <div class="field"><span>優先度</span><select id="tPri" aria-label="優先度">${PRI_ORDER.map(v => `<option ${v === r.優先度 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <div class="field"><span>優先度</span><select id="tPri" aria-label="優先度">${PRI_ORDER.map(v => `<option value="${v}" ${v === r.優先度 ? 'selected' : ''}>${PRI_NAME[v]}</option>`).join('')}</select></div>
     <h3>配布</h3>
     <table class="ptable">
       ${row('配布上限世帯', `${fmtN(r.配布上限世帯)}世帯（${r.世帯数の年}年）`)}
@@ -763,14 +774,15 @@ function openPriList() {
   const rows = [...prio.keys()].map(k => ({ k, r: townRow(k) }));
   const shown = rows.filter(x => inFilter(x.r)).sort((a, b) => PRI_ORDER.indexOf(a.r.優先度) - PRI_ORDER.indexOf(b.r.優先度) || (a.r.順位 || 999) - (b.r.順位 || 999));
   const active = shown.filter(x => x.r.配達可否 !== '配達不可');
+  const order = townOrder();
   const total = active.reduce((n, x) => n + (x.r.配布上限世帯 || 0), 0);
-  const opts = [['ABC', 'A・B・C'], ['A', 'Aのみ'], ['B', 'Bのみ'], ['C', 'Cのみ'], ['保留', '保留のみ'], ['all', '保留も含む']];
+  const opts = [['ABC', '高・中・低'], ['A', '高のみ'], ['B', '中のみ'], ['C', '低のみ'], ['保留', '保留のみ'], ['all', '保留も含む']];
   openSheet(`
     <h2>優先エリアの一覧</h2>
     <p class="sub">配布上限 合計${total.toLocaleString()}世帯（${active.length}町）${shown.length > active.length ? `・配達不可の${shown.length - active.length}町は除外` : ''}<br>データ作成 ${esc(prioMade)}・世帯数は2020年と2026年が混在</p>
     <div class="field"><span>優先度</span><select id="pLevel" aria-label="優先度で絞り込み">${opts.map(([v, t]) => `<option value="${v}" ${v === prioFilter.level ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     <div class="field"><span>理由</span><select id="pGroup" aria-label="優先の理由で絞り込み"><option value="">すべて</option>${['child', 'old', 'far'].map(g => `<option value="${g}" ${g === prioFilter.group ? 'selected' : ''}>${GROUPS[g].name}</option>`).join('')}</select></div>
-    <ul class="plist">${shown.map(({ k, r }) => `<li><button data-town="${esc(k)}"><span class="no">${r.順位 || ''}</span><span class="lv" style="background:${GROUPS[groupOf(r)].color}">${esc(r.優先度 === '保留' ? '保' : r.優先度)}</span><span class="nm">${esc(townLabel(r))}<small>${esc(reasonShort(r))}・${esc(r.配達可否)}</small></span><span class="hh">${fmtN(r.配布上限世帯)}世帯</span></button></li>`).join('')}</ul>
+    <ul class="plist">${shown.map(({ k, r }) => `<li><button data-town="${esc(k)}"><span class="no">${order.get(k) || ''}</span><span class="lv" style="background:${GROUPS[groupOf(r)].color}">${r.優先度 === '保留' ? '保' : PRI_NAME[r.優先度]}</span><span class="nm">${esc(townLabel(r))}<small>${esc(reasonShort(r))}・${esc(r.配達可否)}</small></span><span class="hh">${fmtN(r.配布上限世帯)}世帯</span></button></li>`).join('')}</ul>
     ${shown.length ? '' : '<p class="empty">該当する町がありません</p>'}
     <button class="btn plain" id="pClose">閉じる</button>`);
   const apply = () => { setPrioFilter({ level: $('pLevel').value, group: $('pGroup').value }); openPriList(); };
