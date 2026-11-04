@@ -57,6 +57,7 @@ button{cursor:pointer;border:0;background:none}
 .legend.closed .rows-l{display:none}
 .legend.closed .fold{display:block}
 .c-recent{background:#0d9488}.c-old{background:var(--old)}.c-ng{background:var(--bad)}.c-u1{background:var(--user)}.c-u2{background:#fff;box-shadow:inset 0 0 0 2.5px var(--user)}.c-u3{background:#fff;border:1.5px dashed var(--user)}
+.c-town{background:rgba(120,124,130,.55)}
 .fab{position:absolute;z-index:4;right:12px;bottom:calc(env(safe-area-inset-bottom) + 112px)}
 
 .hint{position:absolute;z-index:4;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 122px);background:rgba(27,36,48,.86);color:#fff;font-size:13px;padding:6px 14px;border-radius:99px;white-space:nowrap;pointer-events:none}
@@ -151,6 +152,7 @@ button{cursor:pointer;border:0;background:none}
       <div><i class="c-u1"></i>利用中</div>
       <div><i class="c-u2"></i>しばらく利用なし</div>
       <div><i class="c-u3"></i>全然利用なし</div>
+      <div><i class="c-town"></i>世帯のある場所</div>
     </div>
     <div class="fold">色の説明</div>
   </button>
@@ -236,6 +238,7 @@ const map = new maplibregl.Map({
     sources: {
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報</a>・<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査</a>を加工・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>' },
+      dots: { type: 'geojson', buffer: 512, data: { type: 'FeatureCollection', features: [] } },
       cells: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       fine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       stores: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -251,6 +254,12 @@ const map = new maplibregl.Map({
       { id: 'water2', type: 'fill', source: 'gsi', 'source-layer': 'WStrA', paint: { 'fill-color': '#c9e0ec' } },
       { id: 'river', type: 'line', source: 'gsi', 'source-layer': 'RvrCL', minzoom: 13, paint: { 'line-color': '#c9e0ec', 'line-width': 1.2 } },
       { id: 'adm', type: 'line', source: 'gsi', 'source-layer': 'AdmBdry', maxzoom: 13, paint: { 'line-color': '#c6c8c4', 'line-width': 1, 'line-dasharray': [3, 2] } },
+      // 全ての建物が入っているのは16のタイルだけなので、それより小さい縮尺では世帯のある場所を灰色で出す。
+      // 密集地は濃く、点在地は点々に見える
+      { id: 'town', type: 'heatmap', source: 'dots', maxzoom: 16.5,
+        paint: { 'heatmap-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, 3.4, 16, 300], 'heatmap-weight': ['interpolate', ['linear'], ['get', 'h'], 0, .12, 60, .7], 'heatmap-intensity': .9,
+          'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(120,124,130,0)', .1, 'rgba(120,124,130,.13)', .45, 'rgba(120,124,130,.3)', 1, 'rgba(100,104,112,.5)'],
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 15.5, 1, 16.5, 0] } },
       { id: 'road-minor-case', type: 'line', source: 'gsi', 'source-layer': 'RdCL', minzoom: 14, filter: KIND('市区町村道等', 'その他'), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#dcdcd5', 'line-width': ROAD(1, 3.4, 15) } },
       { id: 'road-minor', type: 'line', source: 'gsi', 'source-layer': 'RdCL', minzoom: 12, filter: KIND('市区町村道等', 'その他'), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ROAD(.4, 2.2, 12.5) } },
       { id: 'road-major-case', type: 'line', source: 'gsi', 'source-layer': 'RdCL', minzoom: 11, filter: KIND('国道', '都道府県道'), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#d3d3cb', 'line-width': ROAD(1.6, 6, 24) } },
@@ -377,6 +386,12 @@ function nearestStore(lng, lat) {
   return { store: best, meters: Math.sqrt(bd) };
 }
 const band = (v, list) => list.filter(t => v >= t).length;
+async function loadDots() {
+  const d = (await fetch('data/mie-dots.json').then(r => r.json())).dots;
+  const features = [];
+  for (let i = 0; i < d.length; i += 3) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d[i], d[i + 1]] }, properties: { h: d[i + 2] } });
+  map.getSource('dots').setData({ type: 'FeatureCollection', features });
+}
 async function loadOverlayData() {
   const [m, st] = await Promise.all([fetch('data/mie-mesh.json').then(r => r.json()), fetch('data/stores.json').then(r => r.json())]);
   storeList = st.stores;
@@ -663,6 +678,7 @@ function openMenu() {
     <h3>データの根拠</h3>
     <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。100世帯以上の1km四方は区画の上位40%で世帯の92%、1,000世帯以上は上位7%で世帯の47%が住んでいます。<br>
     スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けがあります。コンビニとドラッグストアは含みません。住所の一部は町名までの位置です。<br>
+    縮小時の灰色：令和2年国勢調査の250mメッシュの世帯数です。建物そのものではなく、世帯のある場所を示します。世帯の少ない区画は秘匿のため隣に合算されている場合があります。<br>
     徒歩圏：800mは国土交通省「都市構造の評価に関するハンドブック」の生活サービス施設の徒歩圏です。高齢の方の食料品アクセスの基準はより短い500mです（農林水産政策研究所）。<br>
     車の距離：公的な基準はないので、3kmと5kmは県の世帯のうち店から遠い側の約10%と約5%にあたる目安です。距離はどちらも直線で、道のりはこれより長くなります</p>
     <h3>バックアップ</h3>
@@ -767,6 +783,7 @@ updateCount();
 map.on('load', () => {
   draw();
   updateHint();
+  loadDots().catch(() => {});
   loadOverlayData().then(() => {
     let o = ''; try { o = localStorage.getItem(KEY_OVERLAY) || ''; } catch (e) {}
     if (o) setOverlay(o);
