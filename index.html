@@ -135,8 +135,8 @@ button{cursor:pointer;border:0;background:none}
 
 <div class="chips" role="group" aria-label="地図に重ねる情報">
   <button id="ovHh" aria-pressed="false"><i class="knob"></i>世帯数</button>
-  <button id="ovFar" aria-pressed="false"><i class="knob"></i>高齢者×徒歩</button>
-  <button id="ovCar" aria-pressed="false"><i class="knob"></i>子育て×車</button>
+  <button id="ovFar" aria-pressed="false"><i class="knob"></i>徒歩圏</button>
+  <button id="ovCar" aria-pressed="false"><i class="knob"></i>車の距離</button>
 </div>
 
 <button class="round fab" id="locBtn" aria-label="現在地へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="#0f766e"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
@@ -347,14 +347,11 @@ async function loadCities() {
 }
 
 /* ---------- 世帯数とスーパーまでの距離 ----------
-   令和2年国勢調査の500mメッシュを1km四方にまとめて2段階で表示する。距離は車を使えない高齢者の徒歩を想定した直線距離で、
-   500mは農林水産政策研究所の食料品アクセスの基準、1kmは高齢者福祉施設の圏域に使われる距離。
-   1km四方の色は、その中で65歳以上が最も多く住む距離の区分にする。 */
-const HH_BANDS = [300, 1000]; // 300以上は区画の上位21%で世帯の78%、1000以上は上位7%で世帯の47%
-const FAR_BANDS = [500, 1000];   // 高齢者の徒歩
-const CAR_BANDS = [3000, 5000];  // 子育て世帯の車。公的な基準はなく、県内の15歳未満の遠い側約8%と約3%にあたる距離
-const OLD_MIN = 150;  // 65歳以上がこの人数以上の区画だけ色を付ける（上位30%の区画に65歳以上の82%が住む）
-const KID_MIN = 50;   // 15歳未満がこの人数以上の区画だけ色を付ける（上位28%の区画に15歳未満の89%が住む）
+   令和2年国勢調査の500mメッシュを1km四方にまとめてヒートマップにし、拡大すると500m四方の塗りに切り替える。
+   1km四方の距離の区分は、その中で世帯が最も多い区分にする。距離はどちらも最寄りのスーパーまでの直線距離。 */
+const HH_BANDS = [100, 300, 1000]; // 100以上は区画の上位40%で世帯の92%、1000以上は上位7%で世帯の47%
+const WALK_BANDS = [800];          // 国交省「都市構造の評価に関するハンドブック」の生活サービスの徒歩圏
+const CAR_BANDS = [3000, 5000];    // 公的な基準はなく、県の世帯のうち店から遠い側の約10%と約5%にあたる距離
 const NEAR_INFO_KEY = 'posting-near-info-v1';
 let overlay = '';
 let meshRows = null;   // コード → [世帯数, 65歳以上人口, 市町の番号]
@@ -385,43 +382,39 @@ async function loadOverlayData() {
   storeList = st.stores;
   meshCities = m.cities;
   meshRows = new Map();
-  const cells = new Map(); // 1km区画のコード（500mコードの先頭8桁） → 世帯数と、距離の区分ごとの対象人口
+  const cells = new Map(); // 1km区画のコード（500mコードの先頭8桁） → 世帯数と、距離の区分ごとの世帯数
   const fine = [];
   for (const [code, hh, old, kids, city] of m.rows) {
     meshRows.set(code, [hh, old, city, kids]);
     const [x, y] = meshCorner(code);
     const key = code.slice(0, 8);
-    const c = cells.get(key) || { hh: 0, old: [0, 0, 0], kids: [0, 0, 0] };
+    const c = cells.get(key) || { hh: 0, walk: [0, 0], car: [0, 0, 0] };
     const d = nearestStore(x + 1 / 320, y + 1 / 480).meters;
-    const f = band(d, FAR_BANDS), k = band(d, CAR_BANDS);
+    const f = band(d, WALK_BANDS), k = band(d, CAR_BANDS);
     c.hh += hh;
-    c.old[f] += old;
-    c.kids[k] += kids;
+    c.walk[f] += hh;
+    c.car[k] += hh;
     cells.set(key, c);
     fine.push({ key, x, y, f, k });
   }
-  const sum = a => a.reduce((n, v) => n + v, 0);
-  const NONE = 9; // 対象の人が少ない区画
-  const level = (a, min) => sum(a) >= min ? a.indexOf(Math.max(...a)) : NONE;
+  const top = a => a.indexOf(Math.max(...a));
   const features = [...cells].map(([key, c]) => {
     const [x, y] = meshCorner(key + '1');
     return { type: 'Feature', geometry: { type: 'Point', coordinates: [x + 1 / 160, y + 1 / 240] },
-      properties: { h: band(c.hh, HH_BANDS), f: level(c.old, OLD_MIN), k: level(c.kids, KID_MIN) } };
+      properties: { h: band(c.hh, HH_BANDS), f: top(c.walk), k: top(c.car) } };
   });
   const w = 1 / 160, h = 1 / 240;
-  map.getSource('fine').setData({ type: 'FeatureCollection', features: fine.map(r => {
-    const c = cells.get(r.key);
-    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[r.x, r.y], [r.x + w, r.y], [r.x + w, r.y + h], [r.x, r.y + h], [r.x, r.y]]] },
-      properties: { h: band(c.hh, HH_BANDS), f: sum(c.old) >= OLD_MIN ? r.f : NONE, k: sum(c.kids) >= KID_MIN ? r.k : NONE } };
-  }) });
+  map.getSource('fine').setData({ type: 'FeatureCollection', features: fine.map(r => (
+    { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[r.x, r.y], [r.x + w, r.y], [r.x + w, r.y + h], [r.x, r.y + h], [r.x, r.y]]] },
+      properties: { h: band(cells.get(r.key).hh, HH_BANDS), f: r.f, k: r.k } })) });
   map.getSource('cells').setData({ type: 'FeatureCollection', features });
   map.getSource('stores').setData({ type: 'FeatureCollection', features: storeList.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s[0], s[1]] }, properties: { name: s[2] || '' } })) });
 }
 // 世帯数は多いほど濃く、スーパーまでの距離は近いほど濃く、遠いほど薄くする
 const HEAT = {
-  hh: { key: 'h', rgb: '79,70,229', weight: [1, .3, 2, 1], shade: [1, .2, 2, .5], low: '300世帯〜', high: '1,000世帯〜', stores: false },
-  far: { key: 'f', rgb: '234,88,12', weight: [0, 1, 1, .5, 2, .22], shade: [0, .55, 1, .32, 2, .13], low: '遠い（1km〜）', high: '近い（500m未満）', stores: true },
-  car: { key: 'k', rgb: '219,39,119', weight: [0, 1, 1, .5, 2, .22], shade: [0, .55, 1, .32, 2, .13], low: '遠い（5km〜）', high: '近い（3km未満）', stores: true }
+  hh: { key: 'h', rgb: '79,70,229', weight: [1, .14, 2, .4, 3, 1], shade: [1, .1, 2, .26, 3, .5], low: '100世帯〜', high: '1,000世帯〜', stores: false },
+  far: { key: 'f', rgb: '234,88,12', weight: [0, 1, 1, .16], shade: [0, .5, 1, .1], low: '徒歩圏外', high: '徒歩圏内（800m未満）', stores: true },
+  car: { key: 'k', rgb: '219,39,119', weight: [0, 1, 1, .45, 2, .14], shade: [0, .5, 1, .26, 2, .08], low: '遠い（5km〜）', high: '近い（3km未満）', stores: true }
 };
 function setOverlay(o) {
   overlay = o;
@@ -663,15 +656,15 @@ function openMenu() {
     <div class="field"><span>投函済みの濃い色にする期間</span><select id="mCycle">${[14, 30, 60, 90, 180].map(n => `<option value="${n}" ${n === cycleDays() ? 'selected' : ''}>${n}日以内</option>`).join('')}</select></div>
     <h3>地図の追加情報</h3>
     <div class="field"><span>世帯数の濃淡</span><button class="sw" id="swHh" aria-pressed="${overlay === 'hh'}">${overlay === 'hh' ? 'ON' : 'OFF'}</button></div>
-    <div class="field"><span>高齢者×徒歩</span><button class="sw" id="swFar" aria-pressed="${overlay === 'far'}">${overlay === 'far' ? 'ON' : 'OFF'}</button></div>
-    <div class="field"><span>子育て×車</span><button class="sw" id="swCar" aria-pressed="${overlay === 'car'}">${overlay === 'car' ? 'ON' : 'OFF'}</button></div>
+    <div class="field"><span>スーパーの徒歩圏</span><button class="sw" id="swFar" aria-pressed="${overlay === 'far'}">${overlay === 'far' ? 'ON' : 'OFF'}</button></div>
+    <div class="field"><span>スーパーまでの車の距離</span><button class="sw" id="swCar" aria-pressed="${overlay === 'car'}">${overlay === 'car' ? 'ON' : 'OFF'}</button></div>
     <div class="field"><span>家を押したときの周辺情報</span><button class="sw" id="swNear" aria-pressed="${nearInfoOn()}">${nearInfoOn() ? 'ON' : 'OFF'}</button></div>
-    <p class="note">高齢者×徒歩と子育て×車は、対象の人が多い区画だけに色が付きます。色が濃いほどスーパーに近く、薄いほど遠い場所です。</p>
+    <p class="note">スーパーの表示は、色が濃いほど近く、薄いほど遠い場所です。人が住んでいない区画には色が付きません。</p>
     <h3>データの根拠</h3>
-    <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を1km四方に集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。濃さの区切りは分布から決めました。300世帯以上は区画の上位21%で世帯の78%、1,000世帯以上は上位7%で世帯の47%が住んでいます。<br>
+    <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。100世帯以上の1km四方は区画の上位40%で世帯の92%、1,000世帯以上は上位7%で世帯の47%が住んでいます。<br>
     スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けがあります。コンビニとドラッグストアは含みません。住所の一部は町名までの位置です。<br>
-    高齢者×徒歩：65歳以上が150人以上の1km四方に色を付けます（上位30%の区画に65歳以上の82%が住んでいます）。500mは農林水産政策研究所の食料品アクセスの基準、1kmは高齢者福祉施設の圏域に使われる距離です。車を使えるかの情報はないので、実際に車を使えない人の場所を示すものではありません。<br>
-    子育て×車：15歳未満が50人以上の1km四方に色を付けます（上位28%の区画に15歳未満の89%が住んでいます）。車の距離に公的な基準はないので、3kmと5kmは県内の15歳未満のうち店から遠い側の約8%と約3%にあたる目安です。2020年時点の0〜14歳の人数を区画ごとに数えたもので、家ごとの情報でも、子どものいる世帯の数でもありません。距離はどちらも直線で、道のりはこれより長くなります</p>
+    徒歩圏：800mは国土交通省「都市構造の評価に関するハンドブック」の生活サービス施設の徒歩圏です。高齢の方の食料品アクセスの基準はより短い500mです（農林水産政策研究所）。<br>
+    車の距離：公的な基準はないので、3kmと5kmは県の世帯のうち店から遠い側の約10%と約5%にあたる目安です。距離はどちらも直線で、道のりはこれより長くなります</p>
     <h3>バックアップ</h3>
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
