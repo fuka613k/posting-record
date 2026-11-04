@@ -85,7 +85,7 @@ button{cursor:pointer;border:0;background:none}
 </div>
 
 <div class="top">
-  <form id="searchForm"><input id="searchInput" type="search" placeholder="住所で移動" enterkeyhint="search" autocomplete="off"><button id="searchBtn">移動</button></form>
+  <form id="searchForm"><input id="searchInput" type="search" placeholder="三重県内の住所で移動" enterkeyhint="search" autocomplete="off"><button id="searchBtn">移動</button></form>
   <button class="round" id="locBtn" aria-label="現在地へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="#2e7d4f" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="#2e7d4f"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   <button class="round" id="menuBtn" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="#20241f" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 </div>
@@ -150,13 +150,14 @@ function stateOf(r) {
 }
 
 /* ---------- 地図 ---------- */
-let view = { center: [137.5, 37.0], zoom: 4.5 };
+const MIE_BOUNDS = [[135.6, 33.5], [137.2, 35.45]]; // 三重県と少しの余白
+let view = { center: [136.5, 34.55], zoom: 8.5 };
 let hasSavedView = false;
 try { const v = JSON.parse(localStorage.getItem(KEY_VIEW)); if (v && v.center) { view = v; hasSavedView = true; } } catch (e) {}
 
 const COLOR = ['match', ['get', 'state'], 'recent', '#2e7d4f', 'old', '#d9a21b', 'ng', '#c62828', '#888'];
 const map = new maplibregl.Map({
-  container: 'map', center: view.center, zoom: view.zoom, maxZoom: 20, minZoom: 4,
+  container: 'map', center: view.center, zoom: view.zoom, maxZoom: 20, minZoom: 7.5, maxBounds: MIE_BOUNDS,
   dragRotate: false, pitchWithRotate: false, touchPitch: false, attributionControl: false,
   style: {
     version: 8,
@@ -432,11 +433,12 @@ $('searchForm').onsubmit = async e => {
   if (!q) return;
   $('searchInput').blur();
   try {
-    const res = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(q));
-    const list = await res.json();
-    if (!list.length) { toast('見つかりませんでした'); return; }
-    map.jumpTo({ center: list[0].geometry.coordinates, zoom: 17 });
-    toast(list[0].properties.title);
+    const full = q.startsWith('三重県') ? q : '三重県' + q;
+    const res = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(full));
+    const hit = (await res.json()).find(x => x.properties.title.startsWith('三重県') && x.properties.title !== '三重県');
+    if (!hit) { toast('三重県内で見つかりませんでした'); return; }
+    map.jumpTo({ center: hit.geometry.coordinates, zoom: 17 });
+    toast(hit.properties.title);
   } catch (x) { toast('検索できませんでした。通信状況を確認してください'); }
 };
 $('locBtn').onclick = () => { if (!geo.trigger()) toast('現在地を取得できませんでした'); };
