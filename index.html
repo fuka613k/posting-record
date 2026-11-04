@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>ポスティング記録</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ポスティング">
+<meta name="theme-color" content="#2e7d4f">
+<link rel="stylesheet" href="lib/maplibre-gl.css">
+<style>
+:root{--bg:#f4f5f1;--card:#fff;--ink:#20241f;--sub:#646b60;--line:#dcdfd6;--main:#2e7d4f;--main-ink:#fff;--soft:#e4f1e8;--old:#d9a21b;--bad:#c62828;--bad-bg:#fbe9e7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;font-size:16px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+#map{flex:1;min-height:0}
+
+.top{position:absolute;z-index:5;top:calc(env(safe-area-inset-top) + 10px);left:10px;right:10px;display:flex;gap:8px;pointer-events:none}
+.top>*{pointer-events:auto}
+#searchForm{flex:1;min-width:0;display:flex;background:var(--card);border-radius:12px;box-shadow:0 1px 6px #0003}
+#searchInput{flex:1;min-width:0;border:0;background:none;padding:0 12px;height:46px;outline:none;font-size:16px}
+#searchBtn{padding:0 14px;color:var(--main);font-weight:700}
+.round{width:46px;height:46px;flex:none;border-radius:12px;background:var(--card);box-shadow:0 1px 6px #0003;display:grid;place-items:center}
+.round svg{width:22px;height:22px}
+
+.legend{position:absolute;z-index:4;left:10px;top:calc(env(safe-area-inset-top) + 66px);background:#ffffffe8;border-radius:10px;padding:6px 10px;font-size:12.5px;line-height:1.75;box-shadow:0 1px 4px #0002}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.c-recent{background:var(--main)}.c-old{background:var(--old)}.c-ng{background:var(--bad)}
+
+.hint{position:absolute;z-index:4;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 92px);background:#20241fd9;color:#fff;font-size:14px;padding:7px 14px;border-radius:99px;white-space:nowrap;pointer-events:none}
+.hint[hidden]{display:none}
+
+.dock{background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(env(safe-area-inset-bottom) + 10px);display:flex;align-items:center;gap:12px}
+.seg{flex:1;display:grid;grid-template-columns:1fr 1fr;background:var(--bg);border-radius:12px;padding:3px}
+.seg button{height:46px;border-radius:10px;font-weight:700;color:var(--sub)}
+.seg button[aria-pressed=true]{background:var(--main);color:#fff}
+.seg button.ng[aria-pressed=true]{background:var(--bad)}
+.count{text-align:right;font-size:12.5px;color:var(--sub);line-height:1.3;min-width:66px}
+.count b{display:block;font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.toast{position:absolute;z-index:6;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 86px);background:#20241f;color:#fff;border-radius:12px;padding:6px 6px 6px 14px;display:flex;align-items:center;gap:8px;min-height:50px;box-shadow:0 2px 10px #0004}
+.toast[hidden]{display:none}
+.toast span{flex:1;min-width:0}
+.toast button{color:#9fe0b8;font-weight:700;padding:10px 12px;white-space:nowrap}
+
+.scrim{position:absolute;inset:0;z-index:9;background:#0005;display:flex;align-items:flex-end;justify-content:center}
+.scrim[hidden]{display:none}
+.sheet{width:100%;max-width:520px;max-height:82%;overflow:auto;background:var(--card);border-radius:18px 18px 0 0;padding:16px 16px calc(env(safe-area-inset-bottom) + 16px)}
+.sheet h2{font-size:18px;margin:0 0 4px}
+.sheet h3{font-size:14px;margin:18px 0 6px;color:var(--sub);font-weight:600}
+.sub{color:var(--sub);font-size:14px;margin:0 0 10px}
+.btn{display:block;width:100%;min-height:48px;padding:10px;border-radius:12px;font-weight:700;background:var(--soft);color:var(--main);margin-top:8px;text-align:center}
+.btn.primary{background:var(--main);color:#fff}
+.btn.danger{background:var(--bad-bg);color:var(--bad)}
+.btn.plain{background:none;color:var(--sub)}
+.btn:disabled{opacity:.45}
+.badge{display:inline-block;background:var(--bad-bg);color:var(--bad);font-size:13px;font-weight:700;padding:2px 8px;border-radius:99px}
+.rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.rows li{display:flex;align-items:center;justify-content:space-between;min-height:46px;border-bottom:1px solid var(--line);gap:8px}
+.rows li button{color:var(--sub);padding:10px;font-size:14px}
+.empty{color:var(--sub);font-size:14px;padding:10px 0}
+.addDate{display:flex;gap:8px;margin-top:8px}
+.addDate input{flex:1;min-width:0;height:48px;border:1px solid var(--line);border-radius:12px;padding:0 10px;background:#fff}
+.addDate button{min-height:48px;padding:0 16px;border-radius:12px;background:var(--soft);color:var(--main);font-weight:700}
+.field{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.field select{height:42px;border:1px solid var(--line);border-radius:10px;padding:0 8px;background:#fff}
+.maplibregl-ctrl-bottom-right{bottom:0}
+.maplibregl-ctrl-attrib{font-size:10.5px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div class="dock">
+    <div class="seg" role="group" aria-label="押したときの記録">
+      <button id="modePost" aria-pressed="true">投函した</button>
+      <button id="modeNg" class="ng" aria-pressed="false">お断り</button>
+    </div>
+    <div class="count">今日<b id="todayCount">0</b></div>
+  </div>
+</div>
+
+<div class="top">
+  <form id="searchForm"><input id="searchInput" type="search" placeholder="住所で移動" enterkeyhint="search" autocomplete="off"><button id="searchBtn">移動</button></form>
+  <button class="round" id="locBtn" aria-label="現在地へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="#2e7d4f" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="#2e7d4f"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button class="round" id="menuBtn" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="#20241f" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</div>
+
+<div class="legend" aria-label="色の意味">
+  <div><i class="c-recent"></i><span id="legendRecent">30日以内</span></div>
+  <div><i class="c-old"></i>それより前</div>
+  <div><i class="c-ng"></i>お断り</div>
+</div>
+
+<div class="hint" id="hint" hidden></div>
+<div class="toast" id="toast" hidden><span id="toastText"></span><button id="toastBtn"></button></div>
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script src="lib/maplibre-gl.js"></script>
+<script>
+'use strict';
+const KEY_DATA = 'posting-records-v1';
+const KEY_VIEW = 'posting-view-v1';
+const KEY_DEVICE = 'posting-device-v1';
+const KEY_CYCLE = 'posting-cycle-v1';
+const KEY_BACKUP = 'posting-last-backup-v1';
+const MIN_TAP_ZOOM = 16.5;   // これより引いた状態では建物が小さく、押し間違いやすい
+const TAP_PAD = 7;           // 指の太さ分の許容（px）
+const GSI = 'https://cyberjapandata.gsi.go.jp/xyz';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* ---------- 記録データ ----------
+   records[id] = { id, kind:'bldg'|'pin', geom:GeoJSON, center:[lng,lat],
+                   dates:['2026-11-04',...], ng:bool, by:端末ID, updatedAt:ms, deleted?:true }
+   id と updatedAt は、後で複数人の共有に移すときの突き合わせに使う。
+   削除も deleted 印で残し、バックアップの読み込みで復活しないようにする。 */
+let records = {};
+function load() { try { records = JSON.parse(localStorage.getItem(KEY_DATA)) || {}; } catch (e) { records = {}; } }
+function save() {
+  try { localStorage.setItem(KEY_DATA, JSON.stringify(records)); return true; }
+  catch (e) { alert('保存できませんでした。端末の空き容量を確認し、メニューからバックアップを保存してください。'); return false; }
+}
+const live = () => Object.values(records).filter(r => !r.deleted);
+function deviceId() {
+  let d = null;
+  try { d = localStorage.getItem(KEY_DEVICE); } catch (e) {}
+  if (!d) { d = uuid(); try { localStorage.setItem(KEY_DEVICE, d); } catch (e) {} }
+  return d;
+}
+function uuid() { return crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2); }
+function ymd(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fmt(s) { const [y, m, d] = s.split('-').map(Number); const w = '日月火水木金土'[new Date(y, m - 1, d).getDay()]; return `${y}年${m}月${d}日（${w}）`; }
+function short(s) { const [, m, d] = s.split('-').map(Number); return `${m}月${d}日`; }
+function touch(r) { r.updatedAt = Date.now(); r.by = deviceId(); }
+function lastDate(r) { return r.dates.length ? r.dates.reduce((a, b) => a > b ? a : b) : null; }
+function cycleDays() { let v = 30; try { v = Number(localStorage.getItem(KEY_CYCLE)) || 30; } catch (e) {} return v; }
+function stateOf(r) {
+  if (r.ng) return 'ng';
+  const l = lastDate(r);
+  if (!l) return 'none';
+  const [y, m, d] = l.split('-').map(Number);
+  const days = Math.round((new Date(new Date().toDateString()) - new Date(y, m - 1, d)) / 864e5);
+  return days <= cycleDays() ? 'recent' : 'old';
+}
+
+/* ---------- 地図 ---------- */
+let view = { center: [137.5, 37.0], zoom: 4.5 };
+let hasSavedView = false;
+try { const v = JSON.parse(localStorage.getItem(KEY_VIEW)); if (v && v.center) { view = v; hasSavedView = true; } } catch (e) {}
+
+const COLOR = ['match', ['get', 'state'], 'recent', '#2e7d4f', 'old', '#d9a21b', 'ng', '#c62828', '#888'];
+const map = new maplibregl.Map({
+  container: 'map', center: view.center, zoom: view.zoom, maxZoom: 20, minZoom: 4,
+  dragRotate: false, pitchWithRotate: false, touchPitch: false, attributionControl: false,
+  style: {
+    version: 8,
+    sources: {
+      pale: { type: 'raster', tiles: [GSI + '/pale/{z}/{x}/{y}.png'], tileSize: 256, minzoom: 5, maxzoom: 18,
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>' },
+      gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16 },
+      records: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      recordDots: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#f2f2ee' } },
+      { id: 'pale', type: 'raster', source: 'pale' },
+      { id: 'bldg', type: 'fill', source: 'gsi', 'source-layer': 'BldA', minzoom: 14.5, paint: { 'fill-color': '#b9bdb4', 'fill-opacity': .35 } },
+      { id: 'bldg-line', type: 'line', source: 'gsi', 'source-layer': 'BldA', minzoom: 15.5, paint: { 'line-color': '#7c8177', 'line-width': 1 } },
+      { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .78 } },
+      { id: 'rec-line', type: 'line', source: 'records', paint: { 'line-color': COLOR, 'line-width': 1.5 } },
+      // 引いた状態でも記録の場所が分かるように、また建物データにない家のピン用に点でも描く
+      { id: 'rec-dot', type: 'circle', source: 'recordDots',
+        filter: ['any', ['==', ['get', 'kind'], 'pin'], ['<', ['zoom'], 16]],
+        paint: { 'circle-color': COLOR, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 16, 5, 19, 11], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } }
+    ]
+  }
+});
+map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
+const geo = new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true, showAccuracyCircle: true, fitBoundsOptions: { maxZoom: 18 } });
+map.addControl(geo, 'bottom-left');
+map._controlContainer.querySelector('.maplibregl-ctrl-bottom-left').style.display = 'none'; // 操作は上部の自前ボタンから行う
+
+function draw() {
+  const polys = [], dots = [];
+  for (const r of live()) {
+    const properties = { id: r.id, state: stateOf(r), kind: r.kind };
+    if (r.kind === 'bldg') polys.push({ type: 'Feature', geometry: r.geom, properties });
+    dots.push({ type: 'Feature', geometry: { type: 'Point', coordinates: r.center }, properties });
+  }
+  map.getSource('records').setData({ type: 'FeatureCollection', features: polys });
+  map.getSource('recordDots').setData({ type: 'FeatureCollection', features: dots });
+  updateCount();
+}
+function updateCount() {
+  const today = ymd();
+  $('todayCount').textContent = live().filter(r => r.dates.includes(today)).length;
+}
+function updateHint() {
+  const h = $('hint');
+  if (map.getZoom() < MIN_TAP_ZOOM) { h.textContent = '拡大すると建物を押せます'; h.hidden = false; }
+  else h.hidden = true;
+}
+function saveView() {
+  const c = map.getCenter();
+  try { localStorage.setItem(KEY_VIEW, JSON.stringify({ center: [c.lng, c.lat], zoom: map.getZoom() })); } catch (e) {}
+}
+
+/* ---------- 建物の形 ---------- */
+const round6 = n => Math.round(n * 1e6) / 1e6;
+function roundCoords(c) { return typeof c[0] === 'number' ? [round6(c[0]), round6(c[1])] : c.map(roundCoords); }
+function outerRings(g) { return g.type === 'Polygon' ? [g.coordinates[0]] : g.coordinates.map(p => p[0]); }
+function ringArea(pts) { let s = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; }
+function centerOf(g) {
+  // 建物の中心。複数に分かれた形なら一番大きい部分を使う
+  const ring = outerRings(g).sort((a, b) => ringArea(b) - ringArea(a))[0];
+  const n = ring.length - 1 || 1; let x = 0, y = 0;
+  for (let i = 0; i < n; i++) { x += ring[i][0]; y += ring[i][1]; }
+  return [round6(x / n), round6(y / n)];
+}
+function inRing(p, ring) {
+  let hit = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+function pickBuilding(point, lnglat) {
+  const box = [[point.x - TAP_PAD, point.y - TAP_PAD], [point.x + TAP_PAD, point.y + TAP_PAD]];
+  const found = map.queryRenderedFeatures(box, { layers: ['bldg'] });
+  if (!found.length) return null;
+  const p = [lnglat.lng, lnglat.lat];
+  const inside = found.find(f => outerRings(f.geometry).some(r => inRing(p, r)));
+  if (inside) return inside;
+  const d = f => { const c = centerOf(f.geometry); return (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2; };
+  return found.sort((a, b) => d(a) - d(b))[0];
+}
+
+function bboxOf(g) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const walk = c => { if (typeof c[0] === 'number') { x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]); } else c.forEach(walk); };
+  walk(g.coordinates);
+  return [x0, y0, x1, y1];
+}
+const ringsOf = g => g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+function overlaps(a, b) {
+  const has = (from, to) => outerRings(from).some(ring => ring.some(p => outerRings(to).some(r => inRing(p, r))));
+  return has(a, b) || has(b, a);
+}
+// 地図データは約500m四方で区切られ、区切りをまたぐ大きな建物は別々の断片になる。
+// 片側だけ色が付かないよう、押した建物と重なる断片をまとめて1件として残す。
+function wholeBuilding(f) {
+  const EPS = 1e-5; // 約1m。これ以下のはみ出しは同じ形の重複とみなす
+  const box = bboxOf(f.geometry);
+  const a = map.project([box[0], box[1]]), b = map.project([box[2], box[3]]);
+  const near = map.queryRenderedFeatures([[a.x - 2, b.y - 2], [b.x + 2, a.y + 2]], { layers: ['bldg'] });
+  const size = b => (b[2] - b[0]) * (b[3] - b[1]);
+  // 一番大きい断片から順に見て、すでに含まれている断片は足さない（色の二重塗りを防ぐ）
+  const pieces = [f.geometry, ...near.map(g => g.geometry).filter(g => overlaps(f.geometry, g))]
+    .map(g => ({ g, q: bboxOf(g) })).sort((x, y) => size(y.q) - size(x.q));
+  const parts = [], seen = [];
+  for (const { g, q } of pieces) {
+    if (seen.some(s => q[0] >= s[0] - EPS && q[1] >= s[1] - EPS && q[2] <= s[2] + EPS && q[3] <= s[3] + EPS)) continue;
+    seen.push(q);
+    parts.push(...ringsOf(g));
+  }
+  return parts.length === 1 ? { type: 'Polygon', coordinates: parts[0] } : { type: 'MultiPolygon', coordinates: parts };
+}
+
+/* ---------- 記録の操作 ---------- */
+let mode = 'post';
+function setMode(m) {
+  mode = m;
+  $('modePost').setAttribute('aria-pressed', m === 'post');
+  $('modeNg').setAttribute('aria-pressed', m === 'ng');
+}
+function addRecord(kind, geom, center) {
+  const today = ymd();
+  const r = { id: uuid(), kind, geom, center, dates: mode === 'post' ? [today] : [], ng: mode === 'ng' };
+  touch(r);
+  records[r.id] = r;
+  if (!save()) { delete records[r.id]; return; }
+  draw();
+  toast(mode === 'ng' ? 'お断りとして記録しました' : `${short(today)}の投函を記録しました`, '取り消す', () => {
+    delete records[r.id]; save(); draw();
+  });
+}
+function recordAt(point) {
+  const box = [[point.x - 3, point.y - 3], [point.x + 3, point.y + 3]];
+  const f = map.queryRenderedFeatures(box, { layers: ['rec-fill', 'rec-dot'] })[0];
+  return f ? records[f.properties.id] : null;
+}
+map.on('click', e => {
+  hideToast();
+  const existing = recordAt(e.point);
+  if (existing) { openRecord(existing); return; }
+  if (map.getZoom() < MIN_TAP_ZOOM) { toast('もう少し拡大してから押してください'); return; }
+  const f = pickBuilding(e.point, e.lngLat);
+  if (f) {
+    const whole = wholeBuilding(f);
+    const geom = { type: whole.type, coordinates: roundCoords(whole.coordinates) };
+    addRecord('bldg', geom, centerOf(geom));
+  } else {
+    // 新築などで建物データがない場所はピンで残せるようにする
+    const c = [round6(e.lngLat.lng), round6(e.lngLat.lat)];
+    toast('ここに建物データがありません', 'ピンで記録', () => addRecord('pin', { type: 'Point', coordinates: c }, c));
+  }
+});
+
+/* ---------- お知らせ ---------- */
+let toastTimer = 0, toastAction = null;
+function toast(text, label, action) {
+  $('toastText').textContent = text;
+  $('toastBtn').hidden = !label;
+  $('toastBtn').textContent = label || '';
+  toastAction = action || null;
+  $('toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 5000);
+}
+function hideToast() { $('toast').hidden = true; toastAction = null; }
+$('toastBtn').onclick = () => { const a = toastAction; hideToast(); if (a) a(); };
+
+/* ---------- 建物ごとの記録画面 ---------- */
+function openSheet(html) { $('sheet').innerHTML = html; $('scrim').hidden = false; }
+function closeSheet() { $('scrim').hidden = true; $('sheet').innerHTML = ''; }
+$('scrim').addEventListener('click', e => { if (e.target === $('scrim')) closeSheet(); });
+
+function changed(r) { touch(r); save(); draw(); openRecord(r); }
+function openRecord(r) {
+  const today = ymd();
+  const dates = [...r.dates].sort().reverse();
+  openSheet(`
+    <h2>${r.kind === 'pin' ? 'ピンの記録' : '建物の記録'}</h2>
+    <p class="sub">${dates.length ? `投函 ${dates.length}回・最後は${esc(fmt(dates[0]))}` : '投函の記録はありません'}</p>
+    ${r.ng ? '<p><span class="badge">お断り</span></p>' : ''}
+    <button class="btn primary" id="rToday" ${r.dates.includes(today) ? 'disabled' : ''}>${r.dates.includes(today) ? '今日は記録済みです' : '今日も投函した'}</button>
+    <div class="addDate"><input type="date" id="rDate" max="${today}" aria-label="投函した日"><button id="rAdd">別の日を追加</button></div>
+    <h3>投函した日</h3>
+    ${dates.length ? `<ul class="rows">${dates.map(d => `<li><span>${esc(fmt(d))}</span><button data-del="${esc(d)}">取り消す</button></li>`).join('')}</ul>` : '<p class="empty">まだありません</p>'}
+    <button class="btn ${r.ng ? '' : 'danger'}" id="rNg">${r.ng ? 'お断りを解除' : 'お断りにする'}</button>
+    <button class="btn plain" id="rRemove">この記録をすべて消す</button>
+    <button class="btn plain" id="rClose">閉じる</button>`);
+  $('rToday').onclick = () => { r.dates.push(today); changed(r); };
+  $('rAdd').onclick = () => {
+    const v = $('rDate').value;
+    if (!v) return;
+    if (v > today) { toast('未来の日付は記録できません'); return; }
+    if (!r.dates.includes(v)) r.dates.push(v);
+    changed(r);
+  };
+  $('rNg').onclick = () => { r.ng = !r.ng; changed(r); };
+  $('rRemove').onclick = () => {
+    if (!confirm('この建物の記録をすべて消しますか？')) return;
+    r.deleted = true; r.dates = []; r.geom = null; touch(r); save(); draw(); closeSheet();
+  };
+  $('rClose').onclick = closeSheet;
+  $('sheet').querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    r.dates = r.dates.filter(d => d !== b.dataset.del);
+    if (!r.dates.length && !r.ng) { r.deleted = true; r.geom = null; touch(r); save(); draw(); closeSheet(); return; }
+    changed(r);
+  });
+}
+
+/* ---------- メニュー ---------- */
+function openMenu() {
+  const byDay = {};
+  let ng = 0;
+  for (const r of live()) { if (r.ng) ng++; r.dates.forEach(d => byDay[d] = (byDay[d] || 0) + 1); }
+  const days = Object.keys(byDay).sort().reverse();
+  let last = null; try { last = localStorage.getItem(KEY_BACKUP); } catch (e) {}
+  openSheet(`
+    <h2>記録の一覧</h2>
+    <p class="sub">記録した建物 ${live().length}件・お断り ${ng}件</p>
+    <h3>日ごとの投函数</h3>
+    ${days.length ? `<ul class="rows">${days.slice(0, 60).map(d => `<li><span>${esc(fmt(d))}</span><b>${byDay[d]}軒</b></li>`).join('')}</ul>` : '<p class="empty">まだ記録がありません</p>'}
+    <h3>色分け</h3>
+    <div class="field"><span>緑にする期間</span><select id="mCycle">${[14, 30, 60, 90, 180].map(n => `<option value="${n}" ${n === cycleDays() ? 'selected' : ''}>${n}日以内</option>`).join('')}</select></div>
+    <h3>バックアップ</h3>
+    <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
+    <button class="btn" id="mExport">バックアップを保存</button>
+    <button class="btn" id="mImport">バックアップを読み込む</button>
+    <button class="btn plain" id="mClose">閉じる</button>`);
+  $('mCycle').onchange = e => { try { localStorage.setItem(KEY_CYCLE, e.target.value); } catch (x) {} setLegend(); draw(); };
+  $('mExport').onclick = exportData;
+  $('mImport').onclick = () => $('importFile').click();
+  $('mClose').onclick = closeSheet;
+}
+function setLegend() { $('legendRecent').textContent = cycleDays() + '日以内'; }
+function exportData() {
+  const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), records }, null, 0)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ポスティング記録_${ymd()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  try { localStorage.setItem(KEY_BACKUP, ymd()); } catch (e) {}
+  toast('バックアップを保存しました');
+}
+function validRecord(r) {
+  return r && typeof r.id === 'string' && (r.kind === 'bldg' || r.kind === 'pin') && Array.isArray(r.dates) &&
+    r.dates.every(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) && (r.deleted || (r.geom && Array.isArray(r.center)));
+}
+$('importFile').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.app !== 'posting-records' || !data.records) throw new Error('format');
+    let added = 0;
+    // 同じ記録は更新日時が新しいほうを残すので、読み込んでも手元の新しい記録は消えない
+    for (const [id, r] of Object.entries(data.records)) {
+      if (!validRecord(r) || r.id !== id) continue;
+      if (!records[id] || (r.updatedAt || 0) > (records[id].updatedAt || 0)) { records[id] = r; added++; }
+    }
+    save(); draw(); closeSheet();
+    toast(`${added}件を読み込みました`);
+  } catch (x) { toast('このファイルは読み込めません'); }
+};
+
+/* ---------- 移動 ---------- */
+$('searchForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('searchInput').value.trim();
+  if (!q) return;
+  $('searchInput').blur();
+  try {
+    const res = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(q));
+    const list = await res.json();
+    if (!list.length) { toast('見つかりませんでした'); return; }
+    map.jumpTo({ center: list[0].geometry.coordinates, zoom: 17 });
+    toast(list[0].properties.title);
+  } catch (x) { toast('検索できませんでした。通信状況を確認してください'); }
+};
+$('locBtn').onclick = () => { if (!geo.trigger()) toast('現在地を取得できませんでした'); };
+geo.on('error', () => toast('現在地を取得できません。位置情報の許可を確認してください'));
+$('menuBtn').onclick = openMenu;
+$('modePost').onclick = () => setMode('post');
+$('modeNg').onclick = () => setMode('ng');
+
+load();
+setLegend();
+updateCount();
+map.on('load', () => {
+  draw();
+  updateHint();
+  if (!hasSavedView) geo.trigger();
+});
+map.on('moveend', saveView);
+map.on('zoom', updateHint);
+// 日付が変わっても開いたままのとき、色と今日の件数を直す
+document.addEventListener('visibilitychange', () => { if (!document.hidden && map.loaded()) draw(); });
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+</script>
+</body>
+</html>
