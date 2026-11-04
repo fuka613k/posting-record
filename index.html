@@ -58,9 +58,11 @@ button{cursor:pointer;border:0;background:none}
 .legend.closed .fold{display:block}
 .c-recent{background:#0d9488}.c-old{background:var(--old)}.c-ng{background:var(--bad)}.c-u1{background:var(--user)}.c-u2{background:#fff;box-shadow:inset 0 0 0 2.5px var(--user)}.c-u3{background:#fff;border:1.5px dashed var(--user)}
 .c-town{background:rgba(120,124,130,.55)}
-.swatches{display:flex;gap:10px;flex-wrap:wrap;max-width:220px}
-.swatches span{display:flex;align-items:center;gap:5px}
-.swatches i{width:13px;height:13px;border-radius:4px}
+.pgroups{display:flex;gap:6px;flex-wrap:wrap;max-width:240px}
+.pgroups button{display:flex;align-items:center;gap:5px;height:32px;padding:0 9px;border-radius:9px;background:var(--bg);font-size:12.5px;color:var(--ink)}
+.pgroups button[aria-pressed=true]{background:var(--ink);color:#fff}
+.pgroups i{width:11px;height:11px;border-radius:3px}
+.reason{background:var(--bg);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.7;margin:10px 0 4px}
 .ptable{width:100%;border-collapse:collapse;font-size:14px}
 .ptable th{text-align:left;color:var(--sub);font-weight:500;padding:7px 0;border-bottom:1px solid var(--line);width:52%}
 .ptable td{text-align:right;padding:7px 0;border-bottom:1px solid var(--line)}
@@ -305,8 +307,8 @@ const map = new maplibregl.Map({
       // 拡大すると点の広がりが画面外に出て色が消えるので、500m四方の塗りに切り替えて色を残す
       { id: 'shade', type: 'fill', source: 'fine', minzoom: 13.5, layout: { visibility: 'none' }, paint: { 'fill-opacity': 0, 'fill-antialias': false } },
       { id: 'town-fill', type: 'fill', source: 'towns', layout: { visibility: 'none' },
-        paint: { 'fill-color': ['match', ['get', 'lv'], '保留', '#667085', '#ea580c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .62, 'B', .4, 'C', .2, '保留', .24, 0], 18, ['match', ['get', 'lv'], 'A', .34, 'B', .24, 'C', .13, '保留', .15, 0]] } },
-      { id: 'town-line', type: 'line', source: 'towns', layout: { visibility: 'none' }, filter: ['!=', ['get', 'lv'], ''], paint: { 'line-color': ['match', ['get', 'lv'], '保留', '#667085', '#c2410c'], 'line-width': ['match', ['get', 'lv'], 'A', 1.8, 1] } },
+        paint: { 'fill-color': ['get', 'c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .62, 'B', .55, 'C', .22, '保留', .24, 0], 18, ['match', ['get', 'lv'], 'A', .34, 'B', .3, 'C', .14, '保留', .15, 0]] } },
+      { id: 'town-line', type: 'line', source: 'towns', layout: { visibility: 'none' }, filter: ['!=', ['get', 'lv'], ''], paint: { 'line-color': ['get', 'c'], 'line-width': ['match', ['get', 'lv'], 'A', 1.8, 1] } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#1b2430', 'fill-opacity': .22 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1b2430', 'line-width': 2 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .92 } },
@@ -322,7 +324,7 @@ const map = new maplibregl.Map({
         paint: { 'text-color': '#4a5361', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } },
       // 位置が町名までしか分からない店は約1kmずれるので、点も店名も出さない（距離の計算には含める）
       { id: 'town-label', type: 'symbol', source: 'towns', minzoom: 10.5, filter: ['!=', ['get', 'lv'], ''], layout: { visibility: 'none', 'text-field': ['get', 'label'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12.5, 'text-max-width': 7, 'symbol-placement': 'point', 'text-padding': 4 },
-        paint: { 'text-color': '#7c2d12', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } },
+        paint: { 'text-color': '#1b2430', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } },
       { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none' },
         paint: { 'circle-color': '#fff', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 16, 7], 'circle-stroke-color': '#1b2430', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 16, 3] } },
       { id: 'store-name', type: 'symbol', source: 'stores', minzoom: 13.5, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 9 },
@@ -551,14 +553,35 @@ async function areaHouseholds() {
    町の順位などの計画は公開せず、合言葉で暗号化した data/priority.enc.json に置く。
    復号した内容はこの端末の中だけに保存する。公開される data/towns.json は町名と形だけ。 */
 const PRI_ORDER = ['A', 'B', 'C', '保留', 'その他'];
-const PRI_COLOR = { A: '#ea580c', B: '#f08c4f', C: '#f4b48d', 保留: '#667085', その他: '#c4c7cc' };
+// 色は優先の理由、濃さは優先度。文章は暗号データの数字から組み立て、計画の説明は公開ファイルに書かない
+const GROUPS = { child: { name: '子育て', color: '#db2777' }, old: { name: '高齢者', color: '#ea580c' }, far: { name: '山間', color: '#65801f' }, hold: { name: '保留', color: '#667085' }, none: { name: 'その他', color: '#c4c7cc' } };
+const BASE_CHILD = 21.6, BASE_OLD = 46.0; // 松阪市全体の率（国勢調査2020年）
+function groupOf(r) {
+  const k = r.区分 || '';
+  if (r.優先度 === '保留') return 'hold';
+  if (r.優先度 === 'その他') return 'none';
+  return k.includes('子育て') ? 'child' : k.includes('山間') ? 'far' : k.includes('高齢') ? 'old' : 'none';
+}
+const times = (v, b) => (v / b).toFixed(1);
+function reasonOf(r) {
+  const g = groupOf(r), child = r['18歳未満のいる世帯率'], old = r['65歳以上のいる世帯率'];
+  if (g === 'child') return `18歳未満のいる世帯が<b>${child}%</b>で、松阪市全体（${BASE_CHILD}%）の約${times(child, BASE_CHILD)}倍です。戸建率は${r.戸建率}%です。`;
+  if (g === 'old') return `65歳以上のいる世帯が<b>${old}%</b>で、松阪市全体（${BASE_OLD}%）の約${times(old, BASE_OLD)}倍です。高齢化率は${r.高齢化率}%、1〜2人世帯は${r['1〜2人世帯率']}%です。`;
+  if (g === 'far') return `65歳以上のいる世帯が<b>${old}%</b>で、松阪市全体（${BASE_OLD}%）の約${times(old, BASE_OLD)}倍です。山間部で移動の負担が大きいため、配る人は「${esc(r.配る人)}」です。`;
+  if (g === 'hold') return `確認が必要な町です。${esc(r.メモ || '')}`;
+  return '現時点では優先していません。配布禁止という意味ではありません。';
+}
+function reasonShort(r) {
+  const g = groupOf(r);
+  return g === 'child' ? `18歳未満のいる世帯 ${r['18歳未満のいる世帯率']}%` : g === 'old' || g === 'far' ? `65歳以上のいる世帯 ${r['65歳以上のいる世帯率']}%` : r.区分;
+}
 const DELIVERY = ['未確認', '配達可', '配達不可'];
 let prio = null;      // 町のキー → データ
 let prioRev = '';
 let prioMade = '';
 let townGeo = null;
 let townEdit = {};
-let prioFilter = { level: 'ABC', kind: '' };
+let prioFilter = { level: 'ABC', group: '' };
 try { townEdit = JSON.parse(localStorage.getItem(KEY_TOWN_EDIT)) || {}; } catch (e) {}
 try { prioFilter = { ...prioFilter, ...JSON.parse(localStorage.getItem(KEY_PRIO_FILTER)) }; } catch (e) {}
 const townKey = r => r.市町 + r.町;
@@ -571,7 +594,7 @@ function townRow(k) {
 function townLabel(r) { return r.市町 === '多気町' ? `多気町 ${r.町}` : r.町; }
 function inFilter(r) {
   if (!areaAllows(r)) return false;
-  if (prioFilter.kind && r.区分 !== prioFilter.kind) return false;
+  if (prioFilter.group && groupOf(r) !== prioFilter.group) return false;
   return prioFilter.level === 'ABC' ? 'ABC'.includes(r.優先度) : prioFilter.level === 'all' ? r.優先度 !== 'その他' : r.優先度 === prioFilter.level;
 }
 function setPrioData(d) {
@@ -584,13 +607,19 @@ function drawTowns() {
   const features = townGeo.features.map(f => {
     const r = prio ? townRow(f.properties.t) : null;
     const show = r && r.配達可否 !== '配達不可' && inFilter(r);
-    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', label: show ? `${r.順位 ? r.順位 + ' ' : ''}${r.町}` : '' } };
+    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', c: show ? GROUPS[groupOf(r)].color : '#000000', label: show ? `${r.順位 ? r.順位 + ' ' : ''}${r.町}` : '' } };
   });
   map.getSource('towns').setData({ type: 'FeatureCollection', features });
 }
+function setPrioFilter(next) {
+  prioFilter = { ...prioFilter, ...next };
+  try { localStorage.setItem(KEY_PRIO_FILTER, JSON.stringify(prioFilter)); } catch (e) {}
+  drawTowns();
+  if (overlay === 'pri') $('legendExtra').innerHTML = priLegend();
+}
 function priLegend() {
-  const items = ['A', 'B', 'C', '保留'].map(k => `<span><i style="background:${PRI_COLOR[k]}"></i>${k}</span>`).join('');
-  return `<span class="swatches">${items}</span><span class="st" style="margin-top:5px">地図の数字は順位です</span>`;
+  const b = (g, label, color) => `<button data-pgroup="${g}" aria-pressed="${prioFilter.group === g}">${color ? `<i style="background:${color}"></i>` : ''}${label}</button>`;
+  return `<span class="pgroups">${b('', 'すべて')}${['child', 'old', 'far'].map(g => b(g, GROUPS[g].name, GROUPS[g].color)).join('')}</span><span class="st" style="margin-top:5px">濃いほど優先度が高い・数字は順位</span>`;
 }
 async function loadTowns() {
   try {
@@ -701,6 +730,7 @@ function openTown(k, back) {
   openSheet(`
     <h2>${esc(townLabel(r))}</h2>
     <p class="sub">優先度${esc(r.優先度)}${changed ? `（初期値は${esc(r.初期優先度)}）` : ''}・${esc(r.区分)}${r.順位 ? `・順位${r.順位}` : ''}</p>
+    <div class="reason">${reasonOf(r)}</div>
     ${r.配達可否 === '配達不可' ? '<p><span class="badge">配達不可のため配布候補から除外中</span></p>' : ''}
     <div class="field"><span>配達可否</span><select id="tDel" aria-label="配達可否">${DELIVERY.map(v => `<option ${v === r.配達可否 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <div class="field"><span>優先度</span><select id="tPri" aria-label="優先度">${PRI_ORDER.map(v => `<option ${v === r.優先度 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
@@ -731,7 +761,6 @@ function openTown(k, back) {
 }
 function openPriList() {
   const rows = [...prio.keys()].map(k => ({ k, r: townRow(k) }));
-  const kinds = [...new Set(rows.map(x => x.r.区分))].filter(v => v !== 'その他');
   const shown = rows.filter(x => inFilter(x.r)).sort((a, b) => PRI_ORDER.indexOf(a.r.優先度) - PRI_ORDER.indexOf(b.r.優先度) || (a.r.順位 || 999) - (b.r.順位 || 999));
   const active = shown.filter(x => x.r.配達可否 !== '配達不可');
   const total = active.reduce((n, x) => n + (x.r.配布上限世帯 || 0), 0);
@@ -740,18 +769,13 @@ function openPriList() {
     <h2>優先エリアの一覧</h2>
     <p class="sub">配布上限 合計${total.toLocaleString()}世帯（${active.length}町）${shown.length > active.length ? `・配達不可の${shown.length - active.length}町は除外` : ''}<br>データ作成 ${esc(prioMade)}・世帯数は2020年と2026年が混在</p>
     <div class="field"><span>優先度</span><select id="pLevel" aria-label="優先度で絞り込み">${opts.map(([v, t]) => `<option value="${v}" ${v === prioFilter.level ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-    <div class="field"><span>区分</span><select id="pKind" aria-label="区分で絞り込み"><option value="">すべて</option>${kinds.map(v => `<option ${v === prioFilter.kind ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
-    <ul class="plist">${shown.map(({ k, r }) => `<li><button data-town="${esc(k)}"><span class="no">${r.順位 || ''}</span><span class="lv" style="background:${PRI_COLOR[r.優先度]}">${esc(r.優先度 === '保留' ? '保' : r.優先度)}</span><span class="nm">${esc(townLabel(r))}<small>${esc(r.区分)}・${esc(r.配達可否)}</small></span><span class="hh">${fmtN(r.配布上限世帯)}世帯</span></button></li>`).join('')}</ul>
+    <div class="field"><span>理由</span><select id="pGroup" aria-label="優先の理由で絞り込み"><option value="">すべて</option>${['child', 'old', 'far'].map(g => `<option value="${g}" ${g === prioFilter.group ? 'selected' : ''}>${GROUPS[g].name}</option>`).join('')}</select></div>
+    <ul class="plist">${shown.map(({ k, r }) => `<li><button data-town="${esc(k)}"><span class="no">${r.順位 || ''}</span><span class="lv" style="background:${GROUPS[groupOf(r)].color}">${esc(r.優先度 === '保留' ? '保' : r.優先度)}</span><span class="nm">${esc(townLabel(r))}<small>${esc(reasonShort(r))}・${esc(r.配達可否)}</small></span><span class="hh">${fmtN(r.配布上限世帯)}世帯</span></button></li>`).join('')}</ul>
     ${shown.length ? '' : '<p class="empty">該当する町がありません</p>'}
     <button class="btn plain" id="pClose">閉じる</button>`);
-  const apply = () => {
-    prioFilter = { level: $('pLevel').value, kind: $('pKind').value };
-    try { localStorage.setItem(KEY_PRIO_FILTER, JSON.stringify(prioFilter)); } catch (e) {}
-    drawTowns();
-    openPriList();
-  };
+  const apply = () => { setPrioFilter({ level: $('pLevel').value, group: $('pGroup').value }); openPriList(); };
   $('pLevel').onchange = apply;
-  $('pKind').onchange = apply;
+  $('pGroup').onchange = apply;
   $('pClose').onclick = closeSheet;
   $('sheet').querySelectorAll('[data-town]').forEach(b => b.onclick = () => openTown(b.dataset.town, true));
 }
@@ -988,6 +1012,8 @@ function openMenu() {
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
     <button class="btn" id="mImport">バックアップを読み込む</button>
+    <h3>リセット</h3>
+    <button class="btn danger" id="mReset">すべてリセット</button>
     <button class="btn plain" id="mClose">閉じる</button>`);
   $('mCycle').onchange = e => { try { localStorage.setItem(KEY_CYCLE, e.target.value); } catch (x) {} setLegend(); draw(); };
   if ($('mPri')) $('mPri').onclick = openPriList;
@@ -1006,6 +1032,7 @@ function openMenu() {
   if ($('mFit')) $('mFit').onclick = () => { closeSheet(); fitArea(); };
   $('mExport').onclick = exportData;
   $('mImport').onclick = () => $('importFile').click();
+  $('mReset').onclick = openReset;
   $('mClose').onclick = closeSheet;
 }
 function openArea(draft) {
@@ -1080,6 +1107,40 @@ async function openAreaCity(code, d) {
   };
   sync();
 }
+function openReset() {
+  const row = (id, label, note, on) => `<label class="arow" style="min-height:58px"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span style="flex:1;font-size:15px;line-height:1.4">${label}<br><small style="color:var(--sub);font-size:12.5px">${note}</small></span></label>`;
+  openSheet(`
+    <h2>すべてリセット</h2>
+    <p class="sub">リセットする内容を選んでください。</p>
+    ${row('rView', '表示と絞り込み', '重ね表示、優先度の絞り込み、世帯数の下限、色分けの期間', true)}
+    ${row('rArea', '担当エリア', '登録した市町と町', false)}
+    ${row('rTown', '町の変更', '配達可否と、変更した優先度', false)}
+    ${row('rRec', '投函の記録', '投函日、お断り、利用者の記録をすべて消します', false)}
+    <button class="btn danger" id="rDo">リセットする</button>
+    <button class="btn plain" id="rBack">戻る</button>`);
+  $('rBack').onclick = openMenu;
+  $('rDo').onclick = async () => {
+    const view = $('rView').checked, ar = $('rArea').checked, town = $('rTown').checked, rec = $('rRec').checked;
+    if (!view && !ar && !town && !rec) { toast('リセットする内容を選んでください'); return; }
+    if ((rec || town) && !confirm(`${[rec && '投函の記録', town && '町の変更'].filter(Boolean).join('と')}を消します。バックアップがなければ元に戻せません。よろしいですか？`)) return;
+    if (view) {
+      [KEY_HHMIN, KEY_CYCLE].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+      setPrioFilter({ level: 'ABC', group: '' });
+      setOverlay('');
+      setLegend();
+    }
+    if (ar) await setArea([], {});
+    if (town) {
+      townEdit = {};
+      try { localStorage.removeItem(KEY_TOWN_EDIT); } catch (e) {}
+      drawTowns();
+    }
+    if (rec) { records = {}; save(); }
+    draw();
+    closeSheet();
+    toast('リセットしました');
+  };
+}
 function setLegend() { $('legendRecent').textContent = cycleDays() + '日以内'; }
 function exportData() {
   const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), area, areaTowns, townEdit, records }, null, 0)], { type: 'application/json' });
@@ -1142,6 +1203,10 @@ $('menuBtn').onclick = openMenu;
 $('modePost').onclick = () => setMode('post');
 $('modeNg').onclick = () => setMode('ng');
 $('modeUser').onclick = () => setMode('user');
+$('legendExtra').addEventListener('click', e => {
+  const b = e.target.closest('[data-pgroup]');
+  if (b) setPrioFilter({ group: b.dataset.pgroup });
+});
 $('ovPri').onclick = () => {
   if (!prio) { openUnlock(); return; }
   const on = overlay === 'pri';
