@@ -68,6 +68,10 @@ button{cursor:pointer;border:0;background:none}
 .addDate button{min-height:48px;padding:0 16px;border-radius:12px;background:var(--soft);color:var(--main);font-weight:700}
 .field{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
 .field select{height:42px;border:1px solid var(--line);border-radius:10px;padding:0 8px;background:#fff}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.checks label{display:flex;align-items:center;gap:10px;min-height:46px;border-bottom:1px solid var(--line)}
+.checks input{width:20px;height:20px;accent-color:var(--main);flex:none}
+.stick{position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom));background:var(--card);padding:6px 0 calc(env(safe-area-inset-bottom) + 16px);margin-bottom:calc(-16px - env(safe-area-inset-bottom))}
 .maplibregl-ctrl-bottom-right{bottom:0}
 .maplibregl-ctrl-attrib{font-size:10.5px}
 </style>
@@ -109,6 +113,7 @@ const KEY_VIEW = 'posting-view-v1';
 const KEY_DEVICE = 'posting-device-v1';
 const KEY_CYCLE = 'posting-cycle-v1';
 const KEY_BACKUP = 'posting-last-backup-v1';
+const KEY_AREA = 'posting-area-v1';
 const MIN_TAP_ZOOM = 16.5;   // これより引いた状態では建物が小さく、押し間違いやすい
 const TAP_PAD = 7;           // 指の太さ分の許容（px）
 const GSI = 'https://cyberjapandata.gsi.go.jp/xyz';
@@ -163,8 +168,10 @@ const map = new maplibregl.Map({
     version: 8,
     sources: {
       pale: { type: 'raster', tiles: [GSI + '/pale/{z}/{x}/{y}.png'], tileSize: 256, minzoom: 5, maxzoom: 18,
-        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>' },
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報（行政区域データ）</a>を加工' },
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16 },
+      areaDim: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      areaMine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       records: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       recordDots: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
     },
@@ -173,6 +180,8 @@ const map = new maplibregl.Map({
       { id: 'pale', type: 'raster', source: 'pale' },
       { id: 'bldg', type: 'fill', source: 'gsi', 'source-layer': 'BldA', minzoom: 14.5, paint: { 'fill-color': '#b9bdb4', 'fill-opacity': .35 } },
       { id: 'bldg-line', type: 'line', source: 'gsi', 'source-layer': 'BldA', minzoom: 15.5, paint: { 'line-color': '#7c8177', 'line-width': 1 } },
+      { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#20241f', 'fill-opacity': .3 } },
+      { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1565c0', 'line-width': 2.5 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .78 } },
       { id: 'rec-line', type: 'line', source: 'records', paint: { 'line-color': COLOR, 'line-width': 1.5 } },
       // 引いた状態でも記録の場所が分かるように、また建物データにない家のピン用に点でも描く
@@ -210,6 +219,37 @@ function updateHint() {
 function saveView() {
   const c = map.getCenter();
   try { localStorage.setItem(KEY_VIEW, JSON.stringify({ center: [c.lng, c.lat], zoom: map.getZoom() })); } catch (e) {}
+}
+
+/* ---------- 担当エリア ---------- */
+let area = [];       // 担当する市町のコード
+let cityData = null; // { outside: 三重県の外の面, cities: 市町の面 }
+try { const a = JSON.parse(localStorage.getItem(KEY_AREA)); if (Array.isArray(a)) area = a; } catch (e) {}
+function setArea(codes) {
+  area = codes;
+  try { localStorage.setItem(KEY_AREA, JSON.stringify(area)); } catch (e) {}
+  drawArea();
+}
+const areaCities = () => cityData ? cityData.cities.features.filter(f => area.includes(f.properties.code)) : [];
+function areaNames() { return areaCities().map(f => f.properties.name).join('、'); }
+function drawArea() {
+  if (!cityData) return;
+  const dim = area.length ? [cityData.outside, ...cityData.cities.features.filter(f => !area.includes(f.properties.code))] : [];
+  map.getSource('areaDim').setData({ type: 'FeatureCollection', features: dim });
+  map.getSource('areaMine').setData({ type: 'FeatureCollection', features: areaCities() });
+}
+function fitArea() {
+  const list = areaCities();
+  if (!list.length) return;
+  const b = list.map(f => f.properties.bbox);
+  const box = [[Math.min(...b.map(x => x[0])), Math.min(...b.map(x => x[1]))], [Math.max(...b.map(x => x[2])), Math.max(...b.map(x => x[3]))]];
+  map.fitBounds(box, { padding: { top: 76, bottom: 30, left: 24, right: 24 }, animate: false });
+}
+async function loadCities() {
+  const res = await fetch('data/mie-cities.json');
+  if (!res.ok) throw new Error('cities');
+  cityData = await res.json();
+  drawArea();
 }
 
 /* ---------- 建物の形 ---------- */
@@ -381,6 +421,10 @@ function openMenu() {
     <p class="sub">記録した建物 ${live().length}件・お断り ${ng}件</p>
     <h3>日ごとの投函数</h3>
     ${days.length ? `<ul class="rows">${days.slice(0, 60).map(d => `<li><span>${esc(fmt(d))}</span><b>${byDay[d]}軒</b></li>`).join('')}</ul>` : '<p class="empty">まだ記録がありません</p>'}
+    <h3>担当エリア</h3>
+    <p class="sub">${area.length ? esc(areaNames()) : '未登録です。登録すると担当外の地図が暗くなります。'}</p>
+    <button class="btn" id="mArea">担当エリアを${area.length ? '変更' : '登録'}</button>
+    ${area.length ? '<button class="btn" id="mFit">担当エリア全体を見る</button>' : ''}
     <h3>色分け</h3>
     <div class="field"><span>緑にする期間</span><select id="mCycle">${[14, 30, 60, 90, 180].map(n => `<option value="${n}" ${n === cycleDays() ? 'selected' : ''}>${n}日以内</option>`).join('')}</select></div>
     <h3>バックアップ</h3>
@@ -389,13 +433,30 @@ function openMenu() {
     <button class="btn" id="mImport">バックアップを読み込む</button>
     <button class="btn plain" id="mClose">閉じる</button>`);
   $('mCycle').onchange = e => { try { localStorage.setItem(KEY_CYCLE, e.target.value); } catch (x) {} setLegend(); draw(); };
+  $('mArea').onclick = openArea;
+  if ($('mFit')) $('mFit').onclick = () => { closeSheet(); fitArea(); };
   $('mExport').onclick = exportData;
   $('mImport').onclick = () => $('importFile').click();
   $('mClose').onclick = closeSheet;
 }
+function openArea() {
+  if (!cityData) { toast('市町のデータを読み込めていません。通信状況を確認してください'); return; }
+  openSheet(`
+    <h2>担当エリア</h2>
+    <p class="sub">担当の市町を選んでください。担当外でも記録はできます。</p>
+    <div class="checks">${cityData.cities.features.map(f => `<label><input type="checkbox" value="${esc(f.properties.code)}" ${area.includes(f.properties.code) ? 'checked' : ''}>${esc(f.properties.name)}</label>`).join('')}</div>
+    <div class="stick"><button class="btn primary" id="aSave">保存</button><button class="btn plain" id="aBack">戻る</button></div>`);
+  $('aSave').onclick = () => {
+    setArea([...$('sheet').querySelectorAll('input:checked')].map(c => c.value));
+    closeSheet();
+    fitArea();
+    toast(area.length ? '担当エリアを保存しました' : '担当エリアを解除しました');
+  };
+  $('aBack').onclick = openMenu;
+}
 function setLegend() { $('legendRecent').textContent = cycleDays() + '日以内'; }
 function exportData() {
-  const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), records }, null, 0)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), area, records }, null, 0)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `ポスティング記録_${ymd()}.json`;
@@ -422,6 +483,8 @@ $('importFile').onchange = async e => {
       if (!records[id] || (r.updatedAt || 0) > (records[id].updatedAt || 0)) { records[id] = r; added++; }
     }
     save(); draw(); closeSheet();
+    // 手元の設定を優先し、未登録のときだけバックアップの担当エリアを使う
+    if (!area.length && Array.isArray(data.area)) setArea(data.area.filter(c => typeof c === 'string'));
     toast(`${added}件を読み込みました`);
   } catch (x) { toast('このファイルは読み込めません'); }
 };
@@ -453,7 +516,10 @@ updateCount();
 map.on('load', () => {
   draw();
   updateHint();
-  if (!hasSavedView) geo.trigger();
+  loadCities().then(() => {
+    if (!hasSavedView) { if (area.length) fitArea(); else geo.trigger(); }
+    if (!area.length && !live().length) toast('メニューから担当エリアを登録できます');
+  }).catch(() => { if (!hasSavedView) geo.trigger(); });
 });
 map.on('moveend', saveView);
 map.on('zoom', updateHint);

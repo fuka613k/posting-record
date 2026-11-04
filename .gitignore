@@ -8,3 +8,5 @@
 !icon-512.png
 !lib/
 !lib/**
+!data/
+!data/**
