@@ -35,6 +35,12 @@ button{cursor:pointer;border:0;background:none}
 .legend.closed .rows-l{display:none}
 .legend.closed .fold{display:block;color:var(--sub)}
 
+.chips{position:absolute;z-index:4;right:10px;top:calc(env(safe-area-inset-top) + 66px);display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.chips button{background:#ffffffe8;border-radius:10px;padding:7px 10px;font-size:12.5px;font-weight:700;color:var(--sub);box-shadow:0 1px 4px #0002}
+.chips button[aria-pressed=true]{background:#20241f;color:#fff}
+.c-m1{background:#92670a33}.c-m2{background:#92670a70}.c-m3{background:#92670ac0}
+.c-store{background:#20241f;border-radius:50%!important;box-shadow:0 0 0 1.5px #fff}
+.note{font-size:13px;color:var(--sub);line-height:1.6;margin:0 0 8px}
 .hint{position:absolute;z-index:4;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 92px);background:#20241fd9;color:#fff;font-size:14px;padding:7px 14px;border-radius:99px;white-space:nowrap;pointer-events:none}
 .hint[hidden]{display:none}
 
@@ -112,9 +118,15 @@ button{cursor:pointer;border:0;background:none}
     <div><i class="c-u1"></i>利用中</div>
     <div><i class="c-u2"></i>しばらく利用なし</div>
     <div><i class="c-u3"></i>全然利用なし</div>
+    <div id="legendExtra"></div>
   </div>
   <div class="fold">色の説明</div>
 </button>
+
+<div class="chips" role="group" aria-label="地図に重ねる情報">
+  <button id="ovHh" aria-pressed="false">世帯数</button>
+  <button id="ovFar" aria-pressed="false">スーパー距離</button>
+</div>
 
 <div class="hint" id="hint" hidden></div>
 <div class="toast" id="toast" hidden><span id="toastText"></span><button id="toastBtn"></button></div>
@@ -131,6 +143,7 @@ const KEY_CYCLE = 'posting-cycle-v1';
 const KEY_BACKUP = 'posting-last-backup-v1';
 const KEY_AREA = 'posting-area-v1';
 const KEY_LEGEND = 'posting-legend-closed-v1';
+const KEY_OVERLAY = 'posting-overlay-v1';
 const USAGE = { active: '利用中', idle: 'しばらく利用なし', gone: '全然利用なし' };
 const MIN_TAP_ZOOM = 16.5;   // これより引いた状態では建物が小さく、押し間違いやすい
 const TAP_PAD = 7;           // 指の太さ分の許容（px）
@@ -189,8 +202,10 @@ const map = new maplibregl.Map({
     version: 8,
     sources: {
       pale: { type: 'raster', tiles: [GSI + '/pale/{z}/{x}/{y}.png'], tileSize: 256, minzoom: 5, maxzoom: 18,
-        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報（行政区域データ）</a>を加工' },
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報</a>・<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査</a>を加工・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>' },
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16 },
+      mesh: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      stores: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       areaDim: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       areaMine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       records: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -199,10 +214,13 @@ const map = new maplibregl.Map({
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': '#f2f2ee' } },
       { id: 'pale', type: 'raster', source: 'pale', paint: { 'raster-saturation': -0.75 } }, // 記録の色が主役になるよう下地は控えめに
+      { id: 'mesh', type: 'fill', source: 'mesh', layout: { visibility: 'none' }, paint: { 'fill-color': '#92670a', 'fill-opacity': 0 } },
       { id: 'bldg', type: 'fill', source: 'gsi', 'source-layer': 'BldA', minzoom: 14.5, paint: { 'fill-color': '#b9bdb4', 'fill-opacity': .35 } },
       { id: 'bldg-line', type: 'line', source: 'gsi', 'source-layer': 'BldA', minzoom: 15.5, paint: { 'line-color': '#7c8177', 'line-width': 1 } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#20241f', 'fill-opacity': .3 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#3a3f38', 'line-width': 2.5 } },
+      { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, layout: { visibility: 'none' },
+        paint: { 'circle-color': '#20241f', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 16, 6], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .9 } },
       { id: 'rec-line', type: 'line', source: 'records', filter: ['==', ['get', 'ring'], ''], paint: { 'line-color': COLOR, 'line-width': 1 } },
       { id: 'rec-idle', type: 'line', source: 'records', filter: ['==', ['get', 'ring'], 'idle'], paint: { 'line-color': '#312e81', 'line-width': 3.5 } },
@@ -273,6 +291,80 @@ async function loadCities() {
   if (!res.ok) throw new Error('cities');
   cityData = await res.json();
   drawArea();
+}
+
+/* ---------- 世帯数とスーパーまでの距離 ----------
+   世帯数は令和2年国勢調査の500mメッシュ。距離は各区画の中心から最寄りのスーパーまでの直線距離で、
+   500mは農林水産政策研究所の食料品アクセスの基準、1km・2kmは見やすくするための段階。 */
+const HH_BANDS = [100, 300]; // 300以上は区画の上位9%で県の世帯の約半分、100以上は上位24%で世帯の79%
+const FAR_BANDS = [500, 1000, 2000];
+let overlay = '';
+let meshRows = null;   // コード → [世帯数, 65歳以上人口, 市町の番号]
+let meshCities = [];
+let storeList = null;  // [経度, 緯度, 名前]
+function meshCode(lng, lat) {
+  const la = lat * 1.5, p = Math.floor(la), la1 = (la - p) * 8, q = Math.floor(la1), la2 = (la1 - q) * 10, r = Math.floor(la2), la3 = la2 - r;
+  const lo = lng - 100, u = Math.floor(lo), lo1 = (lo - u) * 8, v = Math.floor(lo1), lo2 = (lo1 - v) * 10, w = Math.floor(lo2), lo3 = lo2 - w;
+  return `${p}${u}${q}${v}${r}${w}${1 + (la3 >= .5 ? 2 : 0) + (lo3 >= .5 ? 1 : 0)}`;
+}
+function meshCorner(c) {
+  const lat = +c.slice(0, 2) / 1.5 + +c[4] / 12 + +c[6] / 120 + ('34'.includes(c[8]) ? 1 / 240 : 0);
+  const lng = 100 + +c.slice(2, 4) + +c[5] / 8 + +c[7] / 80 + ('24'.includes(c[8]) ? 1 / 160 : 0);
+  return [lng, lat];
+}
+function nearestStore(lng, lat) {
+  let best = null, bd = Infinity;
+  const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110940;
+  for (const s of storeList) {
+    const d = ((s[0] - lng) * kx) ** 2 + ((s[1] - lat) * ky) ** 2;
+    if (d < bd) { bd = d; best = s; }
+  }
+  return { store: best, meters: Math.sqrt(bd) };
+}
+const band = (v, list) => list.filter(t => v >= t).length;
+async function loadOverlayData() {
+  const [m, st] = await Promise.all([fetch('data/mie-mesh.json').then(r => r.json()), fetch('data/stores.json').then(r => r.json())]);
+  storeList = st.stores;
+  meshCities = m.cities;
+  meshRows = new Map();
+  const features = m.rows.map(([code, hh, old, city]) => {
+    meshRows.set(code, [hh, old, city]);
+    const [x, y] = meshCorner(code), w = 1 / 160, h = 1 / 240;
+    const far = band(nearestStore(x + w / 2, y + h / 2).meters, FAR_BANDS);
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]] },
+      properties: { h: hh > 0 ? 1 + band(hh, HH_BANDS) : 0, f: hh > 0 ? far : 0 } };
+  });
+  map.getSource('mesh').setData({ type: 'FeatureCollection', features });
+  map.getSource('stores').setData({ type: 'FeatureCollection', features: storeList.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s[0], s[1]] }, properties: {} })) });
+}
+function setOverlay(o) {
+  overlay = o;
+  try { localStorage.setItem(KEY_OVERLAY, o); } catch (e) {}
+  $('ovHh').setAttribute('aria-pressed', o === 'hh');
+  $('ovFar').setAttribute('aria-pressed', o === 'far');
+  const key = o === 'hh' ? 'h' : 'f';
+  map.setLayoutProperty('mesh', 'visibility', o ? 'visible' : 'none');
+  map.setLayoutProperty('store-dot', 'visibility', o === 'far' ? 'visible' : 'none');
+  map.setPaintProperty('mesh', 'fill-opacity', ['match', ['get', key], 1, .2, 2, .44, 3, .75, 0]);
+  map.setLayerZoomRange('mesh', 0, o === 'hh' ? 16 : 24); // 世帯数は地区を選ぶ用途なので拡大すると消す
+  const row = (c, t) => `<div><i class="${c}"></i>${t}</div>`;
+  $('legendExtra').innerHTML = o === 'hh' ? row('c-m1', '100世帯未満') + row('c-m2', '100〜299世帯') + row('c-m3', '300世帯以上')
+    : o === 'far' ? row('c-m1', '500m〜1km') + row('c-m2', '1〜2km') + row('c-m3', '2km以上') + row('c-store', 'スーパー') : '';
+  if (o === 'far') toast('スーパーの位置は参考値です。地図にない店もあります');
+}
+function nearHtml(r) {
+  if (!meshRows) return '';
+  const m = meshRows.get(meshCode(r.center[0], r.center[1]));
+  const n = nearestStore(r.center[0], r.center[1]);
+  const km = n.meters < 1000 ? `約${Math.round(n.meters / 10) * 10}m` : `約${(n.meters / 1000).toFixed(1)}km`;
+  return `<h3>この周辺</h3><p class="note">${m && m[0] ? `500m四方に約${m[0].toLocaleString()}世帯・65歳以上${m[1].toLocaleString()}人（2020年国勢調査）` : 'この区画の統計はありません'}<br>
+    把握しているスーパーまで直線${km}${n.store[2] ? `（${esc(n.store[2])}）` : ''}<br>地図にない店が近くにある場合があります</p>`;
+}
+function areaHouseholds() {
+  if (!meshRows || !area.length) return 0;
+  let n = 0;
+  for (const [hh, , c] of meshRows.values()) if (area.includes(meshCities[c])) n += hh;
+  return n;
 }
 
 /* ---------- 建物の形 ---------- */
@@ -423,6 +515,7 @@ function openRecord(r) {
     <h2>${r.kind === 'pin' ? 'ピンの記録' : '建物の記録'}</h2>
     <p class="sub">${dates.length ? `投函 ${dates.length}回・最後は${esc(fmt(dates[0]))}` : '投函の記録はありません'}</p>
     ${r.ng ? '<p><span class="badge">お断り</span></p>' : ''}
+    ${nearHtml(r)}
     <h3>ご利用の状況</h3>
     <div class="usage" role="group" aria-label="ご利用の状況">
       <button data-usage="" aria-pressed="${!USAGE[r.usage]}">なし</button>
@@ -475,11 +568,15 @@ function openMenu() {
     <h3>日ごとの投函数</h3>
     ${days.length ? `<ul class="rows">${days.slice(0, 60).map(d => `<li><span>${esc(fmt(d))}</span><b>${byDay[d]}軒</b></li>`).join('')}</ul>` : '<p class="empty">まだ記録がありません</p>'}
     <h3>担当エリア</h3>
-    <p class="sub">${area.length ? esc(areaNames()) : '未登録です。登録すると担当外の地図が暗くなります。'}</p>
+    <p class="sub">${area.length ? esc(areaNames()) + (areaHouseholds() ? `<br>世帯数 約${areaHouseholds().toLocaleString()}世帯（2020年国勢調査）` : '') : '未登録です。登録すると担当外の地図が暗くなります。'}</p>
     <button class="btn" id="mArea">担当エリアを${area.length ? '変更' : '登録'}</button>
     ${area.length ? '<button class="btn" id="mFit">担当エリア全体を見る</button>' : ''}
     <h3>色分け</h3>
     <div class="field"><span>緑にする期間</span><select id="mCycle">${[14, 30, 60, 90, 180].map(n => `<option value="${n}" ${n === cycleDays() ? 'selected' : ''}>${n}日以内</option>`).join('')}</select></div>
+    <h3>データの根拠</h3>
+    <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。世帯の少ない区画は秘匿のため隣の区画に合算されています。濃さの区切りは分布から決めました。300世帯以上は区画の上位9%で県の世帯の約半分、100世帯以上は上位24%で世帯の79%が住んでいます。<br>
+    スーパー：OpenStreetMap（2026年11月4日取得）。地元2社の公式店舗一覧と照合すると、載っているのは約3分の2でした。実際より遠く表示される場所があります。<br>
+    距離：直線距離です。500mは農林水産政策研究所の食料品アクセスの基準で、1km・2kmは見やすくするための段階です。</p>
     <h3>バックアップ</h3>
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
@@ -563,6 +660,8 @@ $('menuBtn').onclick = openMenu;
 $('modePost').onclick = () => setMode('post');
 $('modeNg').onclick = () => setMode('ng');
 $('modeUser').onclick = () => setMode('user');
+$('ovHh').onclick = () => setOverlay(overlay === 'hh' ? '' : 'hh');
+$('ovFar').onclick = () => setOverlay(overlay === 'far' ? '' : 'far');
 $('legend').onclick = () => {
   const closed = $('legend').classList.toggle('closed');
   try { localStorage.setItem(KEY_LEGEND, closed ? '1' : ''); } catch (e) {}
@@ -575,6 +674,10 @@ updateCount();
 map.on('load', () => {
   draw();
   updateHint();
+  loadOverlayData().then(() => {
+    let o = ''; try { o = localStorage.getItem(KEY_OVERLAY) || ''; } catch (e) {}
+    if (o) setOverlay(o);
+  }).catch(() => { $('ovHh').disabled = $('ovFar').disabled = true; });
   loadCities().then(() => {
     if (!hasSavedView) { if (area.length) fitArea(); else geo.trigger(); }
     if (!area.length && !live().length) toast('メニューから担当エリアを登録できます');
