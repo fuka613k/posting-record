@@ -40,7 +40,7 @@ button{cursor:pointer;border:0;background:none}
 .knob::after{content:"";position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:transform .15s}
 .chips button[aria-pressed=true] .knob{background:var(--on)}
 .chips button[aria-pressed=true] .knob::after{transform:translateX(10px)}
-#ovHh{--on:#4f46e5}#ovCar{--on:#db2777}
+#ovPri{--on:#ea580c}#ovHh{--on:#4f46e5}#ovCar{--on:#db2777}
 
 .corner{position:absolute;z-index:4;left:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:none}
 .corner>*{pointer-events:auto}
@@ -58,6 +58,30 @@ button{cursor:pointer;border:0;background:none}
 .legend.closed .fold{display:block}
 .c-recent{background:#0d9488}.c-old{background:var(--old)}.c-ng{background:var(--bad)}.c-u1{background:var(--user)}.c-u2{background:#fff;box-shadow:inset 0 0 0 2.5px var(--user)}.c-u3{background:#fff;border:1.5px dashed var(--user)}
 .c-town{background:rgba(120,124,130,.55)}
+.swatches{display:flex;gap:10px;flex-wrap:wrap;max-width:220px}
+.swatches span{display:flex;align-items:center;gap:5px}
+.swatches i{width:13px;height:13px;border-radius:4px}
+.ptable{width:100%;border-collapse:collapse;font-size:14px}
+.ptable th{text-align:left;color:var(--sub);font-weight:500;padding:7px 0;border-bottom:1px solid var(--line);width:52%}
+.ptable td{text-align:right;padding:7px 0;border-bottom:1px solid var(--line)}
+.plist{list-style:none;margin:8px 0 0;padding:0;border-top:1px solid var(--line)}
+.plist button{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;text-align:left;border-bottom:1px solid var(--line);padding:6px 0}
+.plist .no{width:26px;color:var(--sub);font-size:13px;text-align:right;flex:none}
+.plist .lv{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#fff;font-size:12.5px;font-weight:700;flex:none}
+.plist .nm{flex:1;min-width:0;font-size:15px;line-height:1.35}
+.plist .nm small{display:block;color:var(--sub);font-size:12px}
+.plist .hh{font-size:13.5px;color:var(--ink);flex:none}
+.arow{display:flex;align-items:center;gap:8px;min-height:50px;border-bottom:1px solid var(--line)}
+.arow label{flex:1;min-width:0;display:flex;align-items:center;gap:10px;font-size:15px;min-height:48px}
+.arow input,.tchk input{width:20px;height:20px;accent-color:var(--main);flex:none}
+.arow button{flex:none;height:36px;padding:0 12px;border-radius:10px;background:var(--soft);color:var(--main);font-size:13px;font-weight:700}
+.tgroup{display:flex;align-items:center;gap:10px;min-height:48px;margin-top:10px;font-weight:700;font-size:15px;border-bottom:2px solid var(--line)}
+.tgroup input{width:20px;height:20px;accent-color:var(--main)}
+.tchk{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.tchk label{display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px;min-width:0}
+.tchk label[hidden]{display:none}
+.pw{display:block;width:100%;height:50px;border:1px solid var(--line);border-radius:14px;padding:0 14px;background:#fff;margin-top:6px}
+.err{color:var(--bad);font-size:13.5px;margin:8px 0 0;min-height:1.2em}
 .fab{position:absolute;z-index:4;right:12px;bottom:calc(env(safe-area-inset-bottom) + 112px)}
 
 .hint{position:absolute;z-index:4;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 122px);background:rgba(27,36,48,.86);color:#fff;font-size:13px;padding:6px 14px;border-radius:99px;white-space:nowrap;pointer-events:none}
@@ -135,6 +159,7 @@ button{cursor:pointer;border:0;background:none}
 </div>
 
 <div class="chips" role="group" aria-label="地図に重ねる情報">
+  <button id="ovPri" aria-pressed="false"><i class="knob"></i>優先度</button>
   <button id="ovHh" aria-pressed="false"><i class="knob"></i>世帯数</button>
   <button id="ovCar" aria-pressed="false"><i class="knob"></i>車の距離</button>
 </div>
@@ -174,6 +199,10 @@ const KEY_AREA = 'posting-area-v1';
 const KEY_LEGEND = 'posting-legend-closed-v1';
 const KEY_OVERLAY = 'posting-overlay-v1';
 const KEY_HHMIN = 'posting-hh-min-v1';
+const KEY_PRIO = 'posting-priority-v1';       // 復号した町のデータ（この端末の中だけ）
+const KEY_AREA_TOWNS = 'posting-area-towns-v1'; // 市町の一部だけを担当する場合の町
+const KEY_TOWN_EDIT = 'posting-town-edit-v1'; // 配達可否と優先度の変更
+const KEY_PRIO_FILTER = 'posting-prio-filter-v1';
 const USAGE = { active: '利用中', idle: 'しばらく利用なし', gone: '全然利用なし' };
 const MIN_TAP_ZOOM = 16.5;   // これより引いた状態では建物が小さく、押し間違いやすい
 const TAP_PAD = 7;           // 指の太さ分の許容（px）
@@ -238,6 +267,7 @@ const map = new maplibregl.Map({
     sources: {
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報</a>・<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査</a>を加工・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>' },
+      towns: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       dots: { type: 'geojson', buffer: 512, data: { type: 'FeatureCollection', features: [] } },
       cells: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       fine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -274,6 +304,9 @@ const map = new maplibregl.Map({
           'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 13.5, .85, 14.5, 0] } },
       // 拡大すると点の広がりが画面外に出て色が消えるので、500m四方の塗りに切り替えて色を残す
       { id: 'shade', type: 'fill', source: 'fine', minzoom: 13.5, layout: { visibility: 'none' }, paint: { 'fill-opacity': 0, 'fill-antialias': false } },
+      { id: 'town-fill', type: 'fill', source: 'towns', layout: { visibility: 'none' },
+        paint: { 'fill-color': ['match', ['get', 'lv'], '保留', '#667085', '#ea580c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .62, 'B', .4, 'C', .2, '保留', .24, 0], 18, ['match', ['get', 'lv'], 'A', .34, 'B', .24, 'C', .13, '保留', .15, 0]] } },
+      { id: 'town-line', type: 'line', source: 'towns', layout: { visibility: 'none' }, filter: ['!=', ['get', 'lv'], ''], paint: { 'line-color': ['match', ['get', 'lv'], '保留', '#667085', '#c2410c'], 'line-width': ['match', ['get', 'lv'], 'A', 1.8, 1] } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#1b2430', 'fill-opacity': .22 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1b2430', 'line-width': 2 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .92 } },
@@ -288,6 +321,8 @@ const map = new maplibregl.Map({
         layout: { 'text-field': ['get', 'vt_text'], 'text-font': ['NotoSansJP-Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11.5, 14, 13, 18, 15], 'text-max-width': 8, 'text-padding': 8 },
         paint: { 'text-color': '#4a5361', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } },
       // 位置が町名までしか分からない店は約1kmずれるので、点も店名も出さない（距離の計算には含める）
+      { id: 'town-label', type: 'symbol', source: 'towns', minzoom: 10.5, filter: ['!=', ['get', 'lv'], ''], layout: { visibility: 'none', 'text-field': ['get', 'label'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12.5, 'text-max-width': 7, 'symbol-placement': 'point', 'text-padding': 4 },
+        paint: { 'text-color': '#7c2d12', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } },
       { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none' },
         paint: { 'circle-color': '#fff', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 16, 7], 'circle-stroke-color': '#1b2430', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 16, 3] } },
       { id: 'store-name', type: 'symbol', source: 'stores', minzoom: 13.5, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 9 },
@@ -329,25 +364,57 @@ function saveView() {
 let area = [];       // 担当する市町のコード
 let cityData = null; // { outside: 三重県の外の面, cities: 市町の面 }
 try { const a = JSON.parse(localStorage.getItem(KEY_AREA)); if (Array.isArray(a)) area = a; } catch (e) {}
-function setArea(codes) {
+let areaTowns = {};   // 市町コード → 担当する町のキー。ない市町は全域
+try { areaTowns = JSON.parse(localStorage.getItem(KEY_AREA_TOWNS)) || {}; } catch (e) {}
+const townCache = new Map();
+function getCityTowns(code) {
+  if (!townCache.has(code)) townCache.set(code, fetch(`data/towns/${code}.json`).then(r => { if (!r.ok) throw new Error('towns'); return r.json(); }));
+  return townCache.get(code);
+}
+function setArea(codes, towns = {}) {
   area = codes;
-  try { localStorage.setItem(KEY_AREA, JSON.stringify(area)); } catch (e) {}
-  drawArea();
+  areaTowns = towns;
+  try { localStorage.setItem(KEY_AREA, JSON.stringify(area)); localStorage.setItem(KEY_AREA_TOWNS, JSON.stringify(areaTowns)); } catch (e) {}
+  drawTowns();
+  return drawArea();
 }
 const areaCities = () => cityData ? cityData.cities.features.filter(f => area.includes(f.properties.code)) : [];
-function areaNames() { return areaCities().map(f => f.properties.name).join('、'); }
-function drawArea() {
-  if (!cityData) return;
-  const dim = area.length ? [cityData.outside, ...cityData.cities.features.filter(f => !area.includes(f.properties.code))] : [];
-  map.getSource('areaDim').setData({ type: 'FeatureCollection', features: dim });
-  map.getSource('areaMine').setData({ type: 'FeatureCollection', features: areaCities() });
+const codeOf = name => { const f = cityData && cityData.cities.features.find(c => c.properties.name === name); return f ? f.properties.code : ''; };
+function areaAllows(r) {
+  if (!area.length) return true;
+  const code = codeOf(r.市町);
+  if (!area.includes(code)) return false;
+  return !areaTowns[code] || areaTowns[code].includes(townKey(r));
 }
-function fitArea() {
-  const list = areaCities();
-  if (!list.length) return;
-  const b = list.map(f => f.properties.bbox);
-  const box = [[Math.min(...b.map(x => x[0])), Math.min(...b.map(x => x[1]))], [Math.max(...b.map(x => x[2])), Math.max(...b.map(x => x[3]))]];
-  map.fitBounds(box, { padding: { top: 76, bottom: 30, left: 24, right: 24 }, animate: false });
+function areaNames() {
+  return areaCities().map(f => areaTowns[f.properties.code] ? `${f.properties.name}の${areaTowns[f.properties.code].length}町` : f.properties.name).join('、');
+}
+async function drawArea() {
+  if (!cityData) return;
+  const dim = [], mine = [];
+  if (area.length) dim.push(cityData.outside);
+  for (const f of cityData.cities.features) {
+    const code = f.properties.code;
+    if (!area.length) break;
+    if (!area.includes(code)) { dim.push(f); continue; }
+    if (!areaTowns[code]) { mine.push(f); continue; }
+    const g = await getCityTowns(code);
+    for (const t of g.features) (areaTowns[code].includes(t.properties.t) ? mine : dim).push(t);
+  }
+  map.getSource('areaDim').setData({ type: 'FeatureCollection', features: dim });
+  map.getSource('areaMine').setData({ type: 'FeatureCollection', features: mine });
+}
+async function fitArea() {
+  const boxes = [];
+  for (const f of areaCities()) {
+    const code = f.properties.code;
+    if (!areaTowns[code]) { boxes.push(f.properties.bbox); continue; }
+    const g = await getCityTowns(code);
+    g.features.filter(t => areaTowns[code].includes(t.properties.t)).forEach(t => boxes.push(bboxOf(t.geometry)));
+  }
+  if (!boxes.length) return;
+  const box = [[Math.min(...boxes.map(x => x[0])), Math.min(...boxes.map(x => x[1]))], [Math.max(...boxes.map(x => x[2])), Math.max(...boxes.map(x => x[3]))]];
+  map.fitBounds(box, { padding: { top: 120, bottom: 110, left: 24, right: 24 }, animate: false });
 }
 async function loadCities() {
   const res = await fetch('data/mie-cities.json');
@@ -436,14 +503,17 @@ function hhRamp(lo, mid, hi) {
   return ['case', ['<', ['get', 'hv'], a], 0, ['interpolate', ['linear'], ['get', 'hv'], a, lo, b, mid, HH_TOP, hi]];
 }
 function setOverlay(o) {
-  if (o !== 'hh' && o !== 'car') o = '';
+  if (o !== 'hh' && o !== 'car' && !(o === 'pri' && prio)) o = '';
   overlay = o;
   try { localStorage.setItem(KEY_OVERLAY, o); } catch (e) {}
   $('ovHh').setAttribute('aria-pressed', o === 'hh');
   $('ovCar').setAttribute('aria-pressed', o === 'car');
-  ['heat', 'shade'].forEach(l => map.setLayoutProperty(l, 'visibility', o ? 'visible' : 'none'));
+  $('ovPri').setAttribute('aria-pressed', o === 'pri');
+  ['heat', 'shade'].forEach(l => map.setLayoutProperty(l, 'visibility', o === 'hh' || o === 'car' ? 'visible' : 'none'));
+  ['town-fill', 'town-line', 'town-label'].forEach(l => map.setLayoutProperty(l, 'visibility', o === 'pri' ? 'visible' : 'none'));
   ['store-dot', 'store-name'].forEach(l => map.setLayoutProperty(l, 'visibility', o === 'car' ? 'visible' : 'none'));
   if (!o) { $('legendExtra').innerHTML = ''; return; }
+  if (o === 'pri') { $('legendExtra').innerHTML = priLegend(); return; }
   const rgb = o === 'hh' ? HH_RGB : CAR.rgb;
   const weight = o === 'hh' ? hhRamp(.14, .4, 1) : ['match', ['get', CAR.key], ...CAR.weight, 0];
   const shade = o === 'hh' ? hhRamp(.1, .26, .5) : ['match', ['get', CAR.key], ...CAR.shade, 0];
@@ -468,11 +538,222 @@ function nearHtml(r) {
   const store = n.store[3] ? '近くのスーパーは位置を番地まで確認できていないため、距離は出していません' : `スーパーまで直線${km}${n.store[2] ? `（${esc(n.store[2])}）` : ''}`;
   return `<h3>この周辺</h3><p class="note">${m && m[0] ? `500m四方に約${m[0].toLocaleString()}世帯・65歳以上${m[1].toLocaleString()}人・15歳未満${(m[3] || 0).toLocaleString()}人（2020年国勢調査）` : 'この区画の統計はありません'}<br>${store}</p>`;
 }
-function areaHouseholds() {
-  if (!meshRows || !area.length) return 0;
+async function areaHouseholds() {
   let n = 0;
-  for (const [hh, , c] of meshRows.values()) if (area.includes(meshCities[c])) n += hh;
+  for (const code of area) {
+    const g = await getCityTowns(code);
+    for (const t of g.features) if (!areaTowns[code] || areaTowns[code].includes(t.properties.t)) n += t.properties.h || 0;
+  }
   return n;
+}
+
+/* ---------- 優先エリア ----------
+   町の順位などの計画は公開せず、合言葉で暗号化した data/priority.enc.json に置く。
+   復号した内容はこの端末の中だけに保存する。公開される data/towns.json は町名と形だけ。 */
+const PRI_ORDER = ['A', 'B', 'C', '保留', 'その他'];
+const PRI_COLOR = { A: '#ea580c', B: '#f08c4f', C: '#f4b48d', 保留: '#667085', その他: '#c4c7cc' };
+const DELIVERY = ['未確認', '配達可', '配達不可'];
+let prio = null;      // 町のキー → データ
+let prioRev = '';
+let prioMade = '';
+let townGeo = null;
+let townEdit = {};
+let prioFilter = { level: 'ABC', kind: '' };
+try { townEdit = JSON.parse(localStorage.getItem(KEY_TOWN_EDIT)) || {}; } catch (e) {}
+try { prioFilter = { ...prioFilter, ...JSON.parse(localStorage.getItem(KEY_PRIO_FILTER)) }; } catch (e) {}
+const townKey = r => r.市町 + r.町;
+function townRow(k) {
+  const r = prio.get(k);
+  if (!r) return null;
+  const e = townEdit[k] || {};
+  return { ...r, 優先度: e.pri || r.優先度, 配達可否: e.del || r.配達可否, 初期優先度: r.優先度 };
+}
+function townLabel(r) { return r.市町 === '多気町' ? `多気町 ${r.町}` : r.町; }
+function inFilter(r) {
+  if (!areaAllows(r)) return false;
+  if (prioFilter.kind && r.区分 !== prioFilter.kind) return false;
+  return prioFilter.level === 'ABC' ? 'ABC'.includes(r.優先度) : prioFilter.level === 'all' ? r.優先度 !== 'その他' : r.優先度 === prioFilter.level;
+}
+function setPrioData(d) {
+  prio = new Map(d.towns.map(r => [townKey(r), r]));
+  prioRev = d.rev;
+  prioMade = d.作成日 || '';
+}
+function drawTowns() {
+  if (!townGeo) return;
+  const features = townGeo.features.map(f => {
+    const r = prio ? townRow(f.properties.t) : null;
+    const show = r && r.配達可否 !== '配達不可' && inFilter(r);
+    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', label: show ? `${r.順位 ? r.順位 + ' ' : ''}${r.町}` : '' } };
+  });
+  map.getSource('towns').setData({ type: 'FeatureCollection', features });
+}
+function priLegend() {
+  const items = ['A', 'B', 'C', '保留'].map(k => `<span><i style="background:${PRI_COLOR[k]}"></i>${k}</span>`).join('');
+  return `<span class="swatches">${items}</span><span class="st" style="margin-top:5px">地図の数字は順位です</span>`;
+}
+async function loadTowns() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY_PRIO));
+    if (d) { setPrioData(d); checkPrioRev(); await loadPrioTowns(); }
+  } catch (e) {}
+}
+async function loadPrioTowns() {
+  const codes = [...new Set([...prio.values()].map(r => codeOf(r.市町)))].filter(Boolean);
+  const list = await Promise.all(codes.map(getCityTowns));
+  townGeo = { features: list.flatMap(g => g.features) };
+  drawTowns();
+}
+async function checkPrioRev() {
+  // データが更新されていたら、新しい内容を読むために合言葉を入れ直す
+  try {
+    const r = await fetch('data/priority.enc.json', { cache: 'no-cache' });
+    if (r.ok && (await r.json()).rev !== prioRev) { lockPrio(); toast('優先エリアが更新されました。合言葉を入れ直してください'); }
+  } catch (e) {}
+}
+function lockPrio() {
+  prio = null;
+  try { localStorage.removeItem(KEY_PRIO); } catch (e) {}
+  if (overlay === 'pri') setOverlay('');
+  drawTowns();
+}
+async function unlockPrio(pass) {
+  const r = await fetch('data/priority.enc.json', { cache: 'no-cache' });
+  if (!r.ok) throw new Error('nodata');
+  const enc = await r.json();
+  const raw = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(enc.salt), iterations: enc.iter }, raw, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  let plain;
+  try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(enc.iv) }, key, fromB64(enc.ct)); } catch (e) { throw new Error('wrong'); }
+  const text = new TextDecoder().decode(plain);
+  const d = JSON.parse(text);
+  setPrioData(d);
+  try { localStorage.setItem(KEY_PRIO, text); } catch (e) {}
+  await loadPrioTowns();
+}
+function fromB64(s) { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+function openUnlock() {
+  openSheet(`
+    <h2>優先エリアを開く</h2>
+    <p class="sub">町ごとの優先度は、合言葉を入れた端末だけに表示されます。一度開くと、この端末では次回から入力不要です。</p>
+    <form id="uForm"><input class="pw" id="uPass" type="password" autocomplete="current-password" aria-label="合言葉" placeholder="合言葉">
+    <p class="err" id="uErr"></p>
+    <button class="btn primary" id="uOpen">開く</button></form>
+    <button class="btn plain" id="uClose">閉じる</button>`);
+  $('uClose').onclick = closeSheet;
+  $('uForm').onsubmit = async e => {
+    e.preventDefault();
+    const pass = $('uPass').value;
+    if (!pass) return;
+    $('uOpen').disabled = true;
+    $('uErr').textContent = '';
+    try {
+      await unlockPrio(pass);
+      closeSheet();
+      setOverlay('pri');
+      showPrioArea();
+    } catch (x) {
+      $('uErr').textContent = x.message === 'nodata' ? '優先エリアのデータがまだ入っていません' : x.message === 'wrong' ? '合言葉が違います' : '開けませんでした。通信状況を確認してください';
+      $('uOpen').disabled = false;
+    }
+  };
+  setTimeout(() => $('uPass') && $('uPass').focus(), 50);
+}
+function townBox(k) {
+  let b = null;
+  for (const f of townGeo.features) if (f.properties.t === k) {
+    const q = bboxOf(f.geometry);
+    b = b ? [Math.min(b[0], q[0]), Math.min(b[1], q[1]), Math.max(b[2], q[2]), Math.max(b[3], q[3])] : q;
+  }
+  return b;
+}
+function fitBox(b, maxZoom) { if (b) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: { top: 130, bottom: 120, left: 30, right: 30 }, maxZoom, animate: false }); }
+function showPrioArea() {
+  // 優先エリアのある松阪市と多気町が見える位置へ
+  const list = townGeo.features.filter(f => { const r = townRow(f.properties.t); return r && 'AB'.includes(r.優先度); });
+  if (!list.length) return;
+  const b = list.map(f => bboxOf(f.geometry));
+  fitBox([Math.min(...b.map(x => x[0])), Math.min(...b.map(x => x[1])), Math.max(...b.map(x => x[2])), Math.max(...b.map(x => x[3]))], 12);
+}
+function townAt(lng, lat) {
+  if (!townGeo) return null;
+  for (const f of townGeo.features) {
+    const b = bboxOf(f.geometry);
+    if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
+    if (outerRings(f.geometry).some(r => inRing([lng, lat], r))) return f.properties.t;
+  }
+  return null;
+}
+const fmtN = v => v === null || v === undefined || v === '' ? '－' : Number(v).toLocaleString();
+const pct = v => v === null || v === undefined || v === '' ? '－' : `${v}%`;
+function saveTownEdit(k, field, value, initial) {
+  const e = { ...(townEdit[k] || {}) };
+  if (value === initial) delete e[field]; else e[field] = value;
+  if (Object.keys(e).length) { e.at = Date.now(); townEdit[k] = e; } else delete townEdit[k];
+  try { localStorage.setItem(KEY_TOWN_EDIT, JSON.stringify(townEdit)); } catch (x) {}
+  drawTowns();
+}
+function openTown(k, back) {
+  const r = townRow(k);
+  if (!r) return;
+  const row = (a, b) => `<tr><th>${a}</th><td>${esc(b)}</td></tr>`;
+  const changed = r.優先度 !== r.初期優先度;
+  openSheet(`
+    <h2>${esc(townLabel(r))}</h2>
+    <p class="sub">優先度${esc(r.優先度)}${changed ? `（初期値は${esc(r.初期優先度)}）` : ''}・${esc(r.区分)}${r.順位 ? `・順位${r.順位}` : ''}</p>
+    ${r.配達可否 === '配達不可' ? '<p><span class="badge">配達不可のため配布候補から除外中</span></p>' : ''}
+    <div class="field"><span>配達可否</span><select id="tDel" aria-label="配達可否">${DELIVERY.map(v => `<option ${v === r.配達可否 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <div class="field"><span>優先度</span><select id="tPri" aria-label="優先度">${PRI_ORDER.map(v => `<option ${v === r.優先度 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <h3>配布</h3>
+    <table class="ptable">
+      ${row('配布上限世帯', `${fmtN(r.配布上限世帯)}世帯（${r.世帯数の年}年）`)}
+      ${row('配る人', r.配る人 || '－')}
+    </table>
+    <p class="note" style="margin-top:8px">配布上限は上限で、実際の配布数ではありません。配達ルート外、お断り、空き家、配布できない集合住宅を除いて確定します。</p>
+    <h3>町の統計</h3>
+    <table class="ptable">
+      ${row('濃さ指数', r.濃さ指数 ?? '－')}
+      ${row('18歳未満のいる世帯率', pct(r['18歳未満のいる世帯率']))}
+      ${row('65歳以上のいる世帯率', pct(r['65歳以上のいる世帯率']))}
+      ${row('高齢化率', pct(r.高齢化率))}
+      ${row('1〜2人世帯率', pct(r['1〜2人世帯率']))}
+      ${row('戸建率', pct(r.戸建率))}
+      ${row('0〜14歳人口', r['0〜14歳人口'] === null ? '－' : `${fmtN(r['0〜14歳人口'])}人`)}
+    </table>
+    <p class="note" style="margin-top:8px">世帯率と戸建率は2020年の国勢調査です。高齢化率と0〜14歳人口は${r.市町 === '松阪市' ? '2026年' : '2020年'}の値です。</p>
+    ${r.メモ ? `<h3>メモ</h3><p class="note">${esc(r.メモ)}</p>` : ''}
+    <button class="btn" id="tMap">地図で見る</button>
+    <button class="btn plain" id="tClose">${back ? '一覧へ戻る' : '閉じる'}</button>`);
+  $('tDel').onchange = e => { saveTownEdit(k, 'del', e.target.value, prio.get(k).配達可否); openTown(k, back); };
+  $('tPri').onchange = e => { saveTownEdit(k, 'pri', e.target.value, prio.get(k).優先度); openTown(k, back); };
+  $('tMap').onclick = () => { closeSheet(); setOverlay('pri'); fitBox(townBox(k), 15); };
+  $('tClose').onclick = () => { if (back) openPriList(); else closeSheet(); };
+}
+function openPriList() {
+  const rows = [...prio.keys()].map(k => ({ k, r: townRow(k) }));
+  const kinds = [...new Set(rows.map(x => x.r.区分))].filter(v => v !== 'その他');
+  const shown = rows.filter(x => inFilter(x.r)).sort((a, b) => PRI_ORDER.indexOf(a.r.優先度) - PRI_ORDER.indexOf(b.r.優先度) || (a.r.順位 || 999) - (b.r.順位 || 999));
+  const active = shown.filter(x => x.r.配達可否 !== '配達不可');
+  const total = active.reduce((n, x) => n + (x.r.配布上限世帯 || 0), 0);
+  const opts = [['ABC', 'A・B・C'], ['A', 'Aのみ'], ['B', 'Bのみ'], ['C', 'Cのみ'], ['保留', '保留のみ'], ['all', '保留も含む']];
+  openSheet(`
+    <h2>優先エリアの一覧</h2>
+    <p class="sub">配布上限 合計${total.toLocaleString()}世帯（${active.length}町）${shown.length > active.length ? `・配達不可の${shown.length - active.length}町は除外` : ''}<br>データ作成 ${esc(prioMade)}・世帯数は2020年と2026年が混在</p>
+    <div class="field"><span>優先度</span><select id="pLevel" aria-label="優先度で絞り込み">${opts.map(([v, t]) => `<option value="${v}" ${v === prioFilter.level ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="field"><span>区分</span><select id="pKind" aria-label="区分で絞り込み"><option value="">すべて</option>${kinds.map(v => `<option ${v === prioFilter.kind ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+    <ul class="plist">${shown.map(({ k, r }) => `<li><button data-town="${esc(k)}"><span class="no">${r.順位 || ''}</span><span class="lv" style="background:${PRI_COLOR[r.優先度]}">${esc(r.優先度 === '保留' ? '保' : r.優先度)}</span><span class="nm">${esc(townLabel(r))}<small>${esc(r.区分)}・${esc(r.配達可否)}</small></span><span class="hh">${fmtN(r.配布上限世帯)}世帯</span></button></li>`).join('')}</ul>
+    ${shown.length ? '' : '<p class="empty">該当する町がありません</p>'}
+    <button class="btn plain" id="pClose">閉じる</button>`);
+  const apply = () => {
+    prioFilter = { level: $('pLevel').value, kind: $('pKind').value };
+    try { localStorage.setItem(KEY_PRIO_FILTER, JSON.stringify(prioFilter)); } catch (e) {}
+    drawTowns();
+    openPriList();
+  };
+  $('pLevel').onchange = apply;
+  $('pKind').onchange = apply;
+  $('pClose').onclick = closeSheet;
+  $('sheet').querySelectorAll('[data-town]').forEach(b => b.onclick = () => openTown(b.dataset.town, true));
 }
 
 /* ---------- 建物の形 ---------- */
@@ -583,7 +864,11 @@ map.on('click', e => {
   hideToast();
   const existing = recordAt(e.point);
   if (existing) { openRecord(existing); return; }
-  if (map.getZoom() < MIN_TAP_ZOOM) { toast('もう少し拡大してから押してください'); return; }
+  if (map.getZoom() < MIN_TAP_ZOOM) {
+    const k = overlay === 'pri' ? townAt(e.lngLat.lng, e.lngLat.lat) : null;
+    if (k && prio.has(k)) openTown(k); else toast('もう少し拡大してから押してください');
+    return;
+  }
   const f = pickBuilding(e.point, e.lngLat);
   if (f) {
     const whole = wholeBuilding(f);
@@ -624,6 +909,7 @@ function openRecord(r) {
     <p class="sub">${dates.length ? `投函 ${dates.length}回・最後は${esc(fmt(dates[0]))}` : '投函の記録はありません'}</p>
     ${r.ng ? '<p><span class="badge">お断り</span></p>' : ''}
     ${nearHtml(r)}
+    ${prio && townAt(r.center[0], r.center[1]) ? '<button class="btn" id="rTown">この町の優先度を見る</button>' : ''}
     <h3>ご利用の状況</h3>
     <div class="usage" role="group" aria-label="ご利用の状況">
       <button data-usage="" aria-pressed="${!USAGE[r.usage]}">なし</button>
@@ -637,6 +923,7 @@ function openRecord(r) {
     <button class="btn ${r.ng ? '' : 'danger'}" id="rNg">${r.ng ? 'お断りを解除' : 'お断りにする'}</button>
     <button class="btn plain" id="rRemove">この記録をすべて消す</button>
     <button class="btn plain" id="rClose">閉じる</button>`);
+  if ($('rTown')) $('rTown').onclick = () => openTown(townAt(r.center[0], r.center[1]));
   $('rToday').onclick = () => { r.dates.push(today); changed(r); };
   $('rAdd').onclick = () => {
     const v = $('rDate').value;
@@ -675,8 +962,10 @@ function openMenu() {
     <p class="sub">記録した建物 ${live().length}件・お断り ${ng}件<br>${Object.entries(USAGE).map(([k, v]) => `${v} ${live().filter(r => r.usage === k).length}件`).join('・')}</p>
     <h3>日ごとの投函数</h3>
     ${days.length ? `<ul class="rows">${days.slice(0, 60).map(d => `<li><span>${esc(fmt(d))}</span><b>${byDay[d]}軒</b></li>`).join('')}</ul>` : '<p class="empty">まだ記録がありません</p>'}
+    <h3>優先エリア</h3>
+    ${prio ? '<button class="btn" id="mPri">優先エリアの一覧</button><button class="btn plain" id="mLock">この端末から優先エリアを消す</button>' : '<button class="btn" id="mUnlock">合言葉を入れて開く</button>'}
     <h3>担当エリア</h3>
-    <p class="sub">${area.length ? esc(areaNames()) + (areaHouseholds() ? `<br>世帯数 約${areaHouseholds().toLocaleString()}世帯（2020年国勢調査）` : '') : '未登録です。登録すると担当外の地図が暗くなります。'}</p>
+    <p class="sub"><span id="mAreaText">${area.length ? esc(areaNames()) : '未登録です。市町のほか、地区や町単位でも選べます。担当外の地図が暗くなり、優先エリアも担当の中だけになります。'}</span></p>
     <button class="btn" id="mArea">担当エリアを${area.length ? '変更' : '登録'}</button>
     ${area.length ? '<button class="btn" id="mFit">担当エリア全体を見る</button>' : ''}
     <h3>色分け</h3>
@@ -693,13 +982,19 @@ function openMenu() {
     スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けや閉店があります。コンビニとドラッグストアは含みません。住所から番地まで位置を確認できた店のずれは中央値35mでした。町名までしか分からない店は約1kmずれるので、地図に点を出さず、距離の計算にだけ使っています。<br>
     車の距離：公的な基準はないので、3kmと5kmは県の世帯のうち店から遠い側の約10%と約5%にあたる目安です。店を2割抜く試験で判定が変わる世帯は約3%でした。直線距離なので、道のりはこれより長くなります。<br>
     徒歩圏は表示していません。区画が500m四方で粗く、基準の800mの前後350mに世帯の43%が入るため、判定に足る精度がないからです</p>
+    <h3>町の境界</h3>
+    <p class="note">令和2年国勢調査の小地域境界（e-Stat）です。三重県全市町の世帯数の合計は県公表の742,598世帯と一致します。</p>
     <h3>バックアップ</h3>
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
     <button class="btn" id="mImport">バックアップを読み込む</button>
     <button class="btn plain" id="mClose">閉じる</button>`);
   $('mCycle').onchange = e => { try { localStorage.setItem(KEY_CYCLE, e.target.value); } catch (x) {} setLegend(); draw(); };
-  $('mArea').onclick = openArea;
+  if ($('mPri')) $('mPri').onclick = openPriList;
+  if ($('mUnlock')) $('mUnlock').onclick = openUnlock;
+  if ($('mLock')) $('mLock').onclick = () => { if (confirm('この端末から優先エリアを消しますか？配達可否の変更は残ります。')) { lockPrio(); closeSheet(); } };
+  $('mArea').onclick = () => openArea();
+  if (area.length) areaHouseholds().then(n => { if ($('mAreaText') && n) $('mAreaText').innerHTML = `${esc(areaNames())}<br>世帯数 ${n.toLocaleString()}世帯（2020年国勢調査）`; }).catch(() => {});
   $('swHh').onclick = () => { setOverlay(overlay === 'hh' ? '' : 'hh'); openMenu(); };
   $('mHhMin').onchange = e => {
     try { localStorage.setItem(KEY_HHMIN, e.target.value); } catch (x) {}
@@ -713,24 +1008,81 @@ function openMenu() {
   $('mImport').onclick = () => $('importFile').click();
   $('mClose').onclick = closeSheet;
 }
-function openArea() {
+function openArea(draft) {
   if (!cityData) { toast('市町のデータを読み込めていません。通信状況を確認してください'); return; }
+  const d = draft || { area: [...area], towns: JSON.parse(JSON.stringify(areaTowns)) };
   openSheet(`
     <h2>担当エリア</h2>
-    <p class="sub">担当の市町を選んでください。担当外でも記録はできます。</p>
-    <div class="checks">${cityData.cities.features.map(f => `<label><input type="checkbox" value="${esc(f.properties.code)}" ${area.includes(f.properties.code) ? 'checked' : ''}>${esc(f.properties.name)}</label>`).join('')}</div>
+    <p class="sub">市町を選びます。「町を選ぶ」から、地区や町単位に絞れます。</p>
+    <div>${cityData.cities.features.map(f => {
+      const c = f.properties.code, on = d.area.includes(c), part = d.towns[c];
+      return `<div class="arow"><label><input type="checkbox" data-city="${esc(c)}" ${on ? 'checked' : ''}>${esc(f.properties.name)}</label>${on ? `<button data-pick="${esc(c)}">${part ? `${part.length}町` : '全域'}・町を選ぶ</button>` : ''}</div>`;
+    }).join('')}</div>
     <div class="stick"><button class="btn primary" id="aSave">保存</button><button class="btn plain" id="aBack">戻る</button></div>`);
-  $('aSave').onclick = () => {
-    setArea([...$('sheet').querySelectorAll('input:checked')].map(c => c.value));
+  $('sheet').querySelectorAll('[data-city]').forEach(c => c.onchange = () => {
+    const code = c.dataset.city;
+    d.area = c.checked ? [...d.area, code] : d.area.filter(x => x !== code);
+    if (!c.checked) delete d.towns[code];
+    openArea(d);
+  });
+  $('sheet').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => openAreaCity(b.dataset.pick, d));
+  $('aSave').onclick = async () => {
+    await setArea(d.area, d.towns);
     closeSheet();
-    fitArea();
+    await fitArea();
     toast(area.length ? '担当エリアを保存しました' : '担当エリアを解除しました');
   };
   $('aBack').onclick = openMenu;
 }
+async function openAreaCity(code, d) {
+  const g = await getCityTowns(code).catch(() => null);
+  if (!g) { toast('町のデータを読み込めませんでした'); return; }
+  const name = cityData.cities.features.find(f => f.properties.code === code).properties.name;
+  const all = g.features.map(f => f.properties);
+  const chosen = new Set(d.towns[code] || all.map(t => t.t));
+  const groups = [...new Set(all.map(t => t.g || ''))].sort((a, b) => (a === '本庁' ? -1 : b === '本庁' ? 1 : 0) || (a ? 0 : 1) - (b ? 0 : 1));
+  const named = groups.some(Boolean);
+  const box = t => `<label data-name="${esc(t.n)}"><input type="checkbox" data-town="${esc(t.t)}" ${chosen.has(t.t) ? 'checked' : ''}>${esc(t.n)}</label>`;
+  openSheet(`
+    <h2>${esc(name)}の町を選ぶ</h2>
+    <p class="sub" id="acCount"></p>
+    <input class="pw" id="acFind" type="search" placeholder="町名で探す" aria-label="町名で探す" autocomplete="off">
+    <div class="field" style="margin-top:6px"><span>すべて</span><span><button class="btn plain" style="display:inline;width:auto;min-height:36px;margin:0;padding:0 10px" id="acAll">選択</button><button class="btn plain" style="display:inline;width:auto;min-height:36px;margin:0;padding:0 10px" id="acNone">解除</button></span></div>
+    ${groups.map(x => `${named ? `<div class="tgroup"><input type="checkbox" data-group="${esc(x)}" aria-label="${esc(x || 'その他')}をまとめて選択">${esc(x || 'その他')}</div>` : ''}<div class="tchk" data-box="${esc(x)}">${all.filter(t => (t.g || '') === x).map(box).join('')}</div>`).join('')}
+    <div class="stick"><button class="btn primary" id="acOk">決定</button></div>`);
+  const checks = () => [...$('sheet').querySelectorAll('[data-town]')];
+  const sync = () => {
+    $('acCount').textContent = `${checks().filter(c => c.checked).length}町 / ${all.length}町を選択中`;
+    $('sheet').querySelectorAll('[data-group]').forEach(h => {
+      const list = [...$('sheet').querySelector(`[data-box="${CSS.escape(h.dataset.group)}"]`).querySelectorAll('[data-town]')];
+      const n = list.filter(c => c.checked).length;
+      h.checked = n === list.length;
+      h.indeterminate = n > 0 && n < list.length;
+    });
+  };
+  checks().forEach(c => c.onchange = sync);
+  $('sheet').querySelectorAll('[data-group]').forEach(h => h.onchange = () => {
+    $('sheet').querySelector(`[data-box="${CSS.escape(h.dataset.group)}"]`).querySelectorAll('[data-town]').forEach(c => { c.checked = h.checked; });
+    sync();
+  });
+  $('acAll').onclick = () => { checks().forEach(c => { c.checked = true; }); sync(); };
+  $('acNone').onclick = () => { checks().forEach(c => { c.checked = false; }); sync(); };
+  $('acFind').oninput = e => {
+    const q = e.target.value.trim();
+    $('sheet').querySelectorAll('.tchk label').forEach(l => { l.hidden = !!q && !l.dataset.name.includes(q); });
+  };
+  $('acOk').onclick = () => {
+    const sel = checks().filter(c => c.checked).map(c => c.dataset.town);
+    if (!sel.length) { d.area = d.area.filter(x => x !== code); delete d.towns[code]; }
+    else if (sel.length === all.length) delete d.towns[code];
+    else d.towns[code] = sel;
+    openArea(d);
+  };
+  sync();
+}
 function setLegend() { $('legendRecent').textContent = cycleDays() + '日以内'; }
 function exportData() {
-  const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), area, records }, null, 0)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'posting-records', v: 1, exportedAt: new Date().toISOString(), area, areaTowns, townEdit, records }, null, 0)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `ポスティング記録_${ymd()}.json`;
@@ -757,8 +1109,14 @@ $('importFile').onchange = async e => {
       if (!records[id] || (r.updatedAt || 0) > (records[id].updatedAt || 0)) { records[id] = r; added++; }
     }
     save(); draw(); closeSheet();
+    // 町の変更は更新日時が新しいほうを残す
+    for (const [k, e] of Object.entries(data.townEdit || {})) {
+      if (e && typeof e === 'object' && (e.at || 0) > ((townEdit[k] || {}).at || 0)) townEdit[k] = e;
+    }
+    try { localStorage.setItem(KEY_TOWN_EDIT, JSON.stringify(townEdit)); } catch (x) {}
+    drawTowns();
     // 手元の設定を優先し、未登録のときだけバックアップの担当エリアを使う
-    if (!area.length && Array.isArray(data.area)) setArea(data.area.filter(c => typeof c === 'string'));
+    if (!area.length && Array.isArray(data.area)) setArea(data.area.filter(c => typeof c === 'string'), data.areaTowns && typeof data.areaTowns === 'object' ? data.areaTowns : {});
     toast(`${added}件を読み込みました`);
   } catch (x) { toast('このファイルは読み込めません'); }
 };
@@ -784,6 +1142,12 @@ $('menuBtn').onclick = openMenu;
 $('modePost').onclick = () => setMode('post');
 $('modeNg').onclick = () => setMode('ng');
 $('modeUser').onclick = () => setMode('user');
+$('ovPri').onclick = () => {
+  if (!prio) { openUnlock(); return; }
+  const on = overlay === 'pri';
+  setOverlay(on ? '' : 'pri');
+  if (!on) showPrioArea();
+};
 $('ovHh').onclick = () => setOverlay(overlay === 'hh' ? '' : 'hh');
 $('ovCar').onclick = () => setOverlay(overlay === 'car' ? '' : 'car');
 $('legend').onclick = () => {
@@ -803,7 +1167,8 @@ map.on('load', () => {
     let o = ''; try { o = localStorage.getItem(KEY_OVERLAY) || ''; } catch (e) {}
     if (o) setOverlay(o);
   }).catch(() => { $('ovHh').disabled = $('ovCar').disabled = true; });
-  loadCities().then(() => {
+  loadCities().then(async () => {
+    await loadTowns();
     if (!hasSavedView) { if (area.length) fitArea(); else geo.trigger(); }
     if (!area.length && !live().length) toast('メニューから担当エリアを登録できます');
   }).catch(() => { if (!hasSavedView) geo.trigger(); });
