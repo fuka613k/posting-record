@@ -40,7 +40,7 @@ button{cursor:pointer;border:0;background:none}
 .knob::after{content:"";position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:transform .15s}
 .chips button[aria-pressed=true] .knob{background:var(--on)}
 .chips button[aria-pressed=true] .knob::after{transform:translateX(10px)}
-#ovPri{--on:#ea580c}#ovHh{--on:#4f46e5}#ovCar{--on:#db2777}#ovApt{--on:#0369a1}#ovDan{--on:#7c3aed}
+#ovPri{--on:#ea580c}#ovHh{--on:#4f46e5}#ovCar{--on:#db2777}
 
 .corner{position:absolute;z-index:4;left:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:none}
 .corner>*{pointer-events:auto}
@@ -164,15 +164,11 @@ button{cursor:pointer;border:0;background:none}
   <button id="ovPri" aria-pressed="false"><i class="knob"></i>優先度</button>
   <button id="ovHh" aria-pressed="false"><i class="knob"></i>世帯数</button>
   <button id="ovCar" aria-pressed="false"><i class="knob"></i>車の距離</button>
-  <button id="ovDan" aria-pressed="false"><i class="knob"></i>団地</button>
-  <button id="ovApt" aria-pressed="false"><i class="knob"></i>マンション等</button>
 </div>
 
 <button class="round fab" id="locBtn" aria-label="現在地へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="#0f766e"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
 
 <div class="corner">
-  <div class="scale" id="danLegend"></div>
-  <div class="scale" id="aptLegend"></div>
   <div class="scale" id="legendExtra"></div>
   <button class="legend closed" id="legend" aria-label="色の説明を開閉">
     <div class="rows-l">
@@ -205,8 +201,6 @@ const KEY_AREA = 'posting-area-v1';
 const KEY_LEGEND = 'posting-legend-closed-v1';
 const KEY_OVERLAY = 'posting-overlay-v1';
 const KEY_HHMIN = 'posting-hh-min-v1';
-const KEY_APT = 'posting-apt-v1';
-const KEY_DAN = 'posting-danchi-v1';
 const KEY_PRIO = 'posting-priority-v1';       // 復号した町のデータ（この端末の中だけ）
 const KEY_AREA_TOWNS = 'posting-area-towns-v1'; // 市町の一部だけを担当する場合の町
 const KEY_TOWN_EDIT = 'posting-town-edit-v1'; // 配達可否と優先度の変更
@@ -276,8 +270,6 @@ const map = new maplibregl.Map({
       gsi: { type: 'vector', tiles: [GSI + '/optimal_bvmap-v1/{z}/{x}/{y}.pbf'], minzoom: 4, maxzoom: 16,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>・<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報</a>・<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査</a>を加工・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>' },
       towns: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-      apts: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-      danchi: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       dots: { type: 'geojson', buffer: 512, data: { type: 'FeatureCollection', features: [] } },
       cells: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       fine: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -317,8 +309,6 @@ const map = new maplibregl.Map({
       { id: 'town-fill', type: 'fill', source: 'towns', layout: { visibility: 'none' },
         paint: { 'fill-color': ['get', 'c'], 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['match', ['get', 'lv'], 'A', .66, 'B', .42, 'C', .2, 0], 18, ['match', ['get', 'lv'], 'A', .36, 'B', .25, 'C', .13, 0]] } },
       { id: 'town-line', type: 'line', source: 'towns', layout: { visibility: 'none' }, filter: ['!=', ['get', 'lv'], ''], paint: { 'line-color': ['get', 'c'], 'line-width': ['match', ['get', 'lv'], 'A', 1.8, 1] } },
-      { id: 'apt-town-fill', type: 'fill', source: 'towns', filter: ['>', ['get', 'apt'], 0], layout: { visibility: 'none' }, paint: { 'fill-color': '#0369a1', 'fill-opacity': ['match', ['get', 'apt'], 2, .2, .09] } },
-      { id: 'apt-town-line', type: 'line', source: 'towns', filter: ['>', ['get', 'apt'], 0], layout: { visibility: 'none' }, paint: { 'line-color': '#0369a1', 'line-width': 2, 'line-dasharray': [2, 1.4] } },
       { id: 'area-dim', type: 'fill', source: 'areaDim', paint: { 'fill-color': '#1b2430', 'fill-opacity': .22 } },
       { id: 'area-line', type: 'line', source: 'areaMine', paint: { 'line-color': '#1b2430', 'line-width': 2 } },
       { id: 'rec-fill', type: 'fill', source: 'records', paint: { 'fill-color': COLOR, 'fill-opacity': .92 } },
@@ -333,14 +323,6 @@ const map = new maplibregl.Map({
         layout: { 'text-field': ['get', 'vt_text'], 'text-font': ['NotoSansJP-Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11.5, 14, 13, 18, 15], 'text-max-width': 8, 'text-padding': 8 },
         paint: { 'text-color': '#4a5361', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } },
       // 位置が町名までしか分からない店は約1kmずれるので、点も店名も出さない（距離の計算には含める）
-      { id: 'apt-dot', type: 'circle', source: 'apts', minzoom: 11, filter: ['==', ['get', 'd'], 0], layout: { visibility: 'none' },
-        paint: { 'circle-color': '#0369a1', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.2, 16, 6, 19, 10], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } },
-      { id: 'apt-name', type: 'symbol', source: 'apts', minzoom: 15.5, layout: { visibility: 'none', 'text-field': ['get', 'n'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12, 'text-offset': [0, .9], 'text-anchor': 'top', 'text-max-width': 9 },
-        paint: { 'text-color': '#075985', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } },
-      { id: 'dan-dot', type: 'circle', source: 'danchi', minzoom: 9, layout: { visibility: 'none' },
-        paint: { 'circle-color': ['case', ['==', ['get', 'a'], 1], '#ffffff', '#7c3aed'], 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3.5, 16, 9], 'circle-stroke-color': ['case', ['==', ['get', 'a'], 1], '#7c3aed', '#ffffff'], 'circle-stroke-width': 2 } },
-      { id: 'dan-name', type: 'symbol', source: 'danchi', minzoom: 11.5, layout: { visibility: 'none', 'text-field': ['get', 'n'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12.5, 'text-offset': [0, .95], 'text-anchor': 'top', 'text-max-width': 9 },
-        paint: { 'text-color': '#5b21b6', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } },
       { id: 'town-label', type: 'symbol', source: 'towns', minzoom: 10.5, filter: ['!=', ['get', 'lv'], ''], layout: { visibility: 'none', 'text-field': ['get', 'label'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12.5, 'text-max-width': 7, 'symbol-placement': 'point', 'text-padding': 4 },
         paint: { 'text-color': '#1b2430', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } },
       { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none' },
@@ -632,44 +614,6 @@ function setPrioData(d) {
   prioRev = d.rev;
   prioMade = d.作成日 || '';
 }
-// 集合住宅が多い町は国勢調査の戸建率で判定する。世帯の少ない町は率がぶれるので外す
-function aptLevel(r) {
-  if (!r || r.戸建率 === null || r.戸建率 === undefined || (r.配布上限世帯 || 0) < 100) return 0;
-  return r.戸建率 < 40 ? 2 : r.戸建率 < 60 ? 1 : 0;
-}
-let aptOn = false;
-let aptLoaded = false;
-let danOn = false;
-let danLoaded = false;
-async function setDan(on) {
-  danOn = on;
-  try { localStorage.setItem(KEY_DAN, on ? '1' : ''); } catch (e) {}
-  $('ovDan').setAttribute('aria-pressed', on);
-  ['dan-dot', 'dan-name'].forEach(l => map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'));
-  $('danLegend').innerHTML = on ? '<span class="st" style="margin-top:0"><i style="background:#7c3aed;box-shadow:none"></i>県営・市営の団地（松阪市）</span><span class="st"><i style="background:#fff;box-shadow:inset 0 0 0 2.5px #7c3aed"></i>位置はおおよそ</span>' : '';
-  if (on && !danLoaded) {
-    danLoaded = true;
-    try {
-      const d = await fetch('data/danchi.json').then(r => r.json());
-      map.getSource('danchi').setData({ type: 'FeatureCollection', features: d.danchi.map(a => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [a[0], a[1]] }, properties: { n: `${a[3]} ${a[2]}`, a: a[5] } })) });
-    } catch (e) { danLoaded = false; toast('団地のデータを読み込めませんでした'); }
-  }
-}
-async function setApt(on) {
-  aptOn = on;
-  try { localStorage.setItem(KEY_APT, on ? '1' : ''); } catch (e) {}
-  $('ovApt').setAttribute('aria-pressed', on);
-  ['apt-town-fill', 'apt-town-line', 'apt-dot', 'apt-name'].forEach(l => map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'));
-  $('aptLegend').innerHTML = on ? `<span class="st" style="margin-top:0"><i style="background:#0369a1;box-shadow:none"></i>登録があるマンション・アパート（他にもあります）</span>${prio ? '<span class="st"><i style="border-radius:3px;background:rgba(3,105,161,.25);box-shadow:inset 0 0 0 1.5px #0369a1"></i>集合住宅が多い町（戸建率60%未満）</span>' : ''}` : '';
-  if (on && !aptLoaded) {
-    aptLoaded = true;
-    try {
-      const d = await fetch('data/apartments.json').then(r => r.json());
-      const pt = (a, kind) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [a[0], a[1]] }, properties: { n: a[2] || '', d: kind } });
-      map.getSource('apts').setData({ type: 'FeatureCollection', features: [...d.apts.map(a => pt(a, 0)), ...d.danchi.map(a => pt(a, 1))] });
-    } catch (e) { aptLoaded = false; toast('集合住宅のデータを読み込めませんでした'); }
-  }
-}
 // 見えている町の中での番号。優先度の高い順で、同じ優先度の中は分析の順位の順
 function townOrder() {
   const order = new Map();
@@ -685,7 +629,7 @@ function drawTowns() {
   const features = townGeo.features.map(f => {
     const r = prio ? townRow(f.properties.t) : null;
     const show = r && r.配達可否 !== '配達不可' && inFilter(r);
-    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', c: show ? GROUPS[groupOf(r)].color : '#000000', apt: aptLevel(r), label: show ? `${order.has(f.properties.t) ? order.get(f.properties.t) + ' ' : ''}${r.町}` : '' } };
+    return { type: 'Feature', geometry: f.geometry, properties: { t: f.properties.t, lv: show ? r.優先度 : '', c: show ? GROUPS[groupOf(r)].color : '#000000', label: show ? `${order.has(f.properties.t) ? order.get(f.properties.t) + ' ' : ''}${r.町}` : '' } };
   });
   map.getSource('towns').setData({ type: 'FeatureCollection', features });
 }
@@ -808,7 +752,7 @@ function openTown(k, back) {
   openSheet(`
     <h2>${esc(townLabel(r))}</h2>
     <p class="sub">優先度 ${PRI_NAME[r.優先度]}${changed ? `（初期値は${PRI_NAME[r.初期優先度]}）` : ''}${['child', 'old', 'far'].includes(groupOf(r)) ? `・${GROUPS[groupOf(r)].name}` : ''}${townOrder().get(k) ? `・${townOrder().get(k)}番目` : ''}</p>
-    <div class="reason">${reasonOf(r)}${aptLevel(r) ? `<br>戸建率が${r.戸建率}%で、集合住宅が多い町です。配布の可否を管理者に確認してください。` : ''}</div>
+    <div class="reason">${reasonOf(r)}</div>
     ${r.配達可否 === '配達不可' ? '<p><span class="badge">配達不可のため配布候補から除外中</span></p>' : ''}
     <div class="field"><span>配達可否</span><select id="tDel" aria-label="配達可否">${DELIVERY.map(v => `<option ${v === r.配達可否 ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <div class="field"><span>優先度</span><select id="tPri" aria-label="優先度">${PRI_ORDER.map(v => `<option value="${v}" ${v === r.優先度 ? 'selected' : ''}>${PRI_NAME[v]}</option>`).join('')}</select></div>
@@ -1087,11 +1031,6 @@ function openMenu() {
     徒歩圏は表示していません。区画が500m四方で粗く、基準の800mの前後350mに世帯の43%が入るため、判定に足る精度がないからです</p>
     <h3>優先度の決め方</h3>
     <p class="note">注文の実績がないので、統計から需要を推測しています。高は対象世帯の割合が松阪市全体の1.3倍以上で、対象が200世帯以上の町。低は1.2倍未満か、100世帯未満の町。中はその間です。町を押すと変更できます。</p>
-    <h3>団地</h3>
-    <p class="note">県営は三重県の県営住宅一覧（2024年10月7日時点）、市営は松阪市の市営住宅一覧表（2025年3月12日更新）です。松阪市のみで、多気町は未確認です。白抜きの点は住所を番地まで特定できず、町のおおよその位置です。</p>
-    <h3>マンション・アパート</h3>
-    <p class="note">町の色は国勢調査2020年の戸建率で、100世帯以上の町のうち60%未満を表示します。松阪市と多気町のみ、優先エリアを開いた端末で見られます。<br>
-    点はOpenStreetMapに登録がある建物です（2026年11月4日取得）。戸建率95%以上の66町に登録の誤りはありませんでしたが、抜けが多く、戸建率60%未満の26町のうち15町は登録がありません。点がなくても集合住宅がないとは限りません。木造のアパートも含め、すべてを示すものではありません。</p>
     <h3>町の境界</h3>
     <p class="note">令和2年国勢調査の小地域境界（e-Stat）です。三重県全市町の世帯数の合計は県公表の742,598世帯と一致します。</p>
     <h3>バックアップ</h3>
@@ -1213,8 +1152,6 @@ function openReset() {
       [KEY_HHMIN, KEY_CYCLE].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
       setPrioFilter({ level: 'ABC', group: '' });
       setOverlay('');
-      setApt(false);
-      setDan(false);
       setLegend();
     }
     if (ar) await setArea([], {});
@@ -1301,8 +1238,6 @@ $('ovPri').onclick = () => {
   setOverlay(on ? '' : 'pri');
   if (!on) showPrioArea();
 };
-$('ovApt').onclick = () => setApt(!aptOn);
-$('ovDan').onclick = () => setDan(!danOn);
 $('ovHh').onclick = () => setOverlay(overlay === 'hh' ? '' : 'hh');
 $('ovCar').onclick = () => setOverlay(overlay === 'car' ? '' : 'car');
 $('legend').onclick = () => {
@@ -1318,7 +1253,6 @@ map.on('load', () => {
   draw();
   updateHint();
   loadDots().catch(() => {});
-  try { if (localStorage.getItem(KEY_APT)) setApt(true); if (localStorage.getItem(KEY_DAN)) setDan(true); } catch (e) {}
   loadOverlayData().then(() => {
     let o = ''; try { o = localStorage.getItem(KEY_OVERLAY) || ''; } catch (e) {}
     if (o) setOverlay(o);
