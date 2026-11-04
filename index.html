@@ -40,7 +40,7 @@ button{cursor:pointer;border:0;background:none}
 .knob::after{content:"";position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:transform .15s}
 .chips button[aria-pressed=true] .knob{background:var(--on)}
 .chips button[aria-pressed=true] .knob::after{transform:translateX(10px)}
-#ovHh{--on:#4f46e5}#ovFar{--on:#ea580c}#ovCar{--on:#db2777}
+#ovHh{--on:#4f46e5}#ovCar{--on:#db2777}
 
 .corner{position:absolute;z-index:4;left:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:none}
 .corner>*{pointer-events:auto}
@@ -136,7 +136,6 @@ button{cursor:pointer;border:0;background:none}
 
 <div class="chips" role="group" aria-label="地図に重ねる情報">
   <button id="ovHh" aria-pressed="false"><i class="knob"></i>世帯数</button>
-  <button id="ovFar" aria-pressed="false"><i class="knob"></i>徒歩圏</button>
   <button id="ovCar" aria-pressed="false"><i class="knob"></i>車の距離</button>
 </div>
 
@@ -174,6 +173,7 @@ const KEY_BACKUP = 'posting-last-backup-v1';
 const KEY_AREA = 'posting-area-v1';
 const KEY_LEGEND = 'posting-legend-closed-v1';
 const KEY_OVERLAY = 'posting-overlay-v1';
+const KEY_HHMIN = 'posting-hh-min-v1';
 const USAGE = { active: '利用中', idle: 'しばらく利用なし', gone: '全然利用なし' };
 const MIN_TAP_ZOOM = 16.5;   // これより引いた状態では建物が小さく、押し間違いやすい
 const TAP_PAD = 7;           // 指の太さ分の許容（px）
@@ -287,9 +287,10 @@ const map = new maplibregl.Map({
       { id: 'place', type: 'symbol', source: 'gsi', 'source-layer': 'Anno', filter: ['in', ['get', 'vt_code'], ['literal', [...PLACES, ...STATIONS]]],
         layout: { 'text-field': ['get', 'vt_text'], 'text-font': ['NotoSansJP-Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11.5, 14, 13, 18, 15], 'text-max-width': 8, 'text-padding': 8 },
         paint: { 'text-color': '#4a5361', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } },
-      { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, layout: { visibility: 'none' },
+      // 位置が町名までしか分からない店は約1kmずれるので、点も店名も出さない（距離の計算には含める）
+      { id: 'store-dot', type: 'circle', source: 'stores', minzoom: 10, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none' },
         paint: { 'circle-color': '#fff', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 16, 7], 'circle-stroke-color': '#1b2430', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 16, 3] } },
-      { id: 'store-name', type: 'symbol', source: 'stores', minzoom: 13.5, layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 9 },
+      { id: 'store-name', type: 'symbol', source: 'stores', minzoom: 13.5, filter: ['==', ['get', 'approx'], 0], layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': ['NotoSansJP-Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 9 },
         paint: { 'text-color': '#1b2430', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } }
     ]
   }
@@ -357,12 +358,15 @@ async function loadCities() {
 
 /* ---------- 世帯数とスーパーまでの距離 ----------
    令和2年国勢調査の500mメッシュを1km四方にまとめてヒートマップにし、拡大すると500m四方の塗りに切り替える。
-   1km四方の距離の区分は、その中で世帯が最も多い区分にする。距離はどちらも最寄りのスーパーまでの直線距離。 */
-const HH_BANDS = [100, 300, 1000]; // 100以上は区画の上位40%で世帯の92%、1000以上は上位7%で世帯の47%
-const WALK_BANDS = [800];          // 国交省「都市構造の評価に関するハンドブック」の生活サービスの徒歩圏
+   距離は最寄りのスーパーまでの直線距離。徒歩圏の判定は500m区画では粗すぎる（基準800mの前後350mに世帯の43%が入る）ので出さない。
+   車の距離は店を2割抜いても判定が変わる世帯が約3%で、目安として使える。 */
 const CAR_BANDS = [3000, 5000];    // 公的な基準はなく、県の世帯のうち店から遠い側の約10%と約5%にあたる距離
+const HH_CHOICES = [10, 30, 50, 100, 300];
+const HH_TOP = 1000;
 const NEAR_INFO_KEY = 'posting-near-info-v1';
+function hhMin() { let v = 30; try { v = Number(localStorage.getItem(KEY_HHMIN)) || 30; } catch (e) {} return v; }
 let overlay = '';
+let cellList = [];     // 1km区画ごとの世帯数
 let meshRows = null;   // コード → [世帯数, 65歳以上人口, 市町の番号]
 let meshCities = [];
 let storeList = null;  // [経度, 緯度, 名前]
@@ -399,62 +403,70 @@ async function loadOverlayData() {
   meshRows = new Map();
   const cells = new Map(); // 1km区画のコード（500mコードの先頭8桁） → 世帯数と、距離の区分ごとの世帯数
   const fine = [];
+  cellList = [];
   for (const [code, hh, old, kids, city] of m.rows) {
     meshRows.set(code, [hh, old, city, kids]);
     const [x, y] = meshCorner(code);
     const key = code.slice(0, 8);
-    const c = cells.get(key) || { hh: 0, walk: [0, 0], car: [0, 0, 0] };
-    const d = nearestStore(x + 1 / 320, y + 1 / 480).meters;
-    const f = band(d, WALK_BANDS), k = band(d, CAR_BANDS);
+    const c = cells.get(key) || { hh: 0, car: [0, 0, 0] };
+    const k = band(nearestStore(x + 1 / 320, y + 1 / 480).meters, CAR_BANDS);
     c.hh += hh;
-    c.walk[f] += hh;
     c.car[k] += hh;
     cells.set(key, c);
-    fine.push({ key, x, y, f, k });
+    fine.push({ key, x, y, k });
   }
   const top = a => a.indexOf(Math.max(...a));
+  cellList = [...cells.values()].map(c => c.hh);
   const features = [...cells].map(([key, c]) => {
     const [x, y] = meshCorner(key + '1');
-    return { type: 'Feature', geometry: { type: 'Point', coordinates: [x + 1 / 160, y + 1 / 240] },
-      properties: { h: band(c.hh, HH_BANDS), f: top(c.walk), k: top(c.car) } };
+    return { type: 'Feature', geometry: { type: 'Point', coordinates: [x + 1 / 160, y + 1 / 240] }, properties: { hv: c.hh, k: top(c.car) } };
   });
   const w = 1 / 160, h = 1 / 240;
   map.getSource('fine').setData({ type: 'FeatureCollection', features: fine.map(r => (
     { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[r.x, r.y], [r.x + w, r.y], [r.x + w, r.y + h], [r.x, r.y + h], [r.x, r.y]]] },
-      properties: { h: band(cells.get(r.key).hh, HH_BANDS), f: r.f, k: r.k } })) });
+      properties: { hv: cells.get(r.key).hh, k: r.k } })) });
   map.getSource('cells').setData({ type: 'FeatureCollection', features });
-  map.getSource('stores').setData({ type: 'FeatureCollection', features: storeList.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s[0], s[1]] }, properties: { name: s[2] || '' } })) });
+  map.getSource('stores').setData({ type: 'FeatureCollection', features: storeList.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s[0], s[1]] }, properties: { name: s[2] || '', approx: s[3] ? 1 : 0 } })) });
 }
-// 世帯数は多いほど濃く、スーパーまでの距離は近いほど濃く、遠いほど薄くする
-const HEAT = {
-  hh: { key: 'h', rgb: '79,70,229', weight: [1, .14, 2, .4, 3, 1], shade: [1, .1, 2, .26, 3, .5], low: '100世帯〜', high: '1,000世帯〜', stores: false },
-  far: { key: 'f', rgb: '234,88,12', weight: [0, 1, 1, .16], shade: [0, .5, 1, .1], low: '徒歩圏外', high: '徒歩圏内（800m未満）', stores: true },
-  car: { key: 'k', rgb: '219,39,119', weight: [0, 1, 1, .45, 2, .14], shade: [0, .5, 1, .26, 2, .08], low: '遠い（5km〜）', high: '近い（3km未満）', stores: true }
-};
+// 世帯数は多いほど濃く、スーパーまでの車の距離は近いほど濃く、遠いほど薄くする
+const CAR = { key: 'k', rgb: '219,39,119', weight: [0, 1, 1, .45, 2, .14], shade: [0, .5, 1, .26, 2, .08] };
+const HH_RGB = '79,70,229';
+function hhRamp(lo, mid, hi) {
+  const a = hhMin(), b = (a + HH_TOP) / 3;
+  return ['case', ['<', ['get', 'hv'], a], 0, ['interpolate', ['linear'], ['get', 'hv'], a, lo, b, mid, HH_TOP, hi]];
+}
 function setOverlay(o) {
+  if (o !== 'hh' && o !== 'car') o = '';
   overlay = o;
   try { localStorage.setItem(KEY_OVERLAY, o); } catch (e) {}
   $('ovHh').setAttribute('aria-pressed', o === 'hh');
-  $('ovFar').setAttribute('aria-pressed', o === 'far');
   $('ovCar').setAttribute('aria-pressed', o === 'car');
-  const h = HEAT[o];
-  ['heat', 'shade'].forEach(l => map.setLayoutProperty(l, 'visibility', h ? 'visible' : 'none'));
-  ['store-dot', 'store-name'].forEach(l => map.setLayoutProperty(l, 'visibility', h && h.stores ? 'visible' : 'none'));
-  if (!h) { $('legendExtra').innerHTML = ''; return; }
-  map.setPaintProperty('heat', 'heatmap-weight', ['match', ['get', h.key], ...h.weight, 0]);
-  map.setPaintProperty('heat', 'heatmap-color', ['interpolate', ['linear'], ['heatmap-density'], 0, `rgba(${h.rgb},0)`, .12, `rgba(${h.rgb},.2)`, .45, `rgba(${h.rgb},.45)`, 1, `rgba(${h.rgb},.78)`]);
-  map.setPaintProperty('shade', 'fill-color', `rgb(${h.rgb})`);
-  map.setPaintProperty('shade', 'fill-opacity', ['interpolate', ['linear'], ['zoom'], 13.5, 0, 14.5, ['match', ['get', h.key], ...h.shade, 0]]);
-  $('legendExtra').innerHTML = `<span class="bar" style="background:linear-gradient(90deg,rgba(${h.rgb},.14),rgba(${h.rgb},.72))"></span><span class="ends"><span>${h.low}</span><span>${h.high}</span></span>${h.stores ? '<span class="st"><i></i>スーパー</span>' : ''}`;
+  ['heat', 'shade'].forEach(l => map.setLayoutProperty(l, 'visibility', o ? 'visible' : 'none'));
+  ['store-dot', 'store-name'].forEach(l => map.setLayoutProperty(l, 'visibility', o === 'car' ? 'visible' : 'none'));
+  if (!o) { $('legendExtra').innerHTML = ''; return; }
+  const rgb = o === 'hh' ? HH_RGB : CAR.rgb;
+  const weight = o === 'hh' ? hhRamp(.14, .4, 1) : ['match', ['get', CAR.key], ...CAR.weight, 0];
+  const shade = o === 'hh' ? hhRamp(.1, .26, .5) : ['match', ['get', CAR.key], ...CAR.shade, 0];
+  map.setPaintProperty('heat', 'heatmap-weight', weight);
+  map.setPaintProperty('heat', 'heatmap-color', ['interpolate', ['linear'], ['heatmap-density'], 0, `rgba(${rgb},0)`, .12, `rgba(${rgb},.2)`, .45, `rgba(${rgb},.45)`, 1, `rgba(${rgb},.78)`]);
+  map.setPaintProperty('shade', 'fill-color', `rgb(${rgb})`);
+  map.setPaintProperty('shade', 'fill-opacity', ['interpolate', ['linear'], ['zoom'], 13.5, 0, 14.5, shade]);
+  const low = o === 'hh' ? `${hhMin()}世帯〜` : '遠い（5km〜）', high = o === 'hh' ? '1,000世帯〜' : '近い（3km未満）';
+  $('legendExtra').innerHTML = `<span class="bar" style="background:linear-gradient(90deg,rgba(${rgb},.14),rgba(${rgb},.72))"></span><span class="ends"><span>${low}</span><span>${high}</span></span>${o === 'car' ? '<span class="st"><i></i>スーパー（位置を確認できた店）</span>' : ''}`;
+}
+function hhShare() {
+  if (!cellList.length) return '';
+  const a = hhMin(), all = cellList.reduce((n, v) => n + v, 0), on = cellList.filter(v => v >= a);
+  return `県内の1km四方のうち${Math.round(on.length / cellList.length * 100)}%に色が付き、世帯の${Math.round(on.reduce((n, v) => n + v, 0) / all * 100)}%が入ります。`;
 }
 function nearInfoOn() { try { return localStorage.getItem(NEAR_INFO_KEY) !== 'off'; } catch (e) { return true; } }
 function nearHtml(r) {
   if (!meshRows || !nearInfoOn()) return '';
   const m = meshRows.get(meshCode(r.center[0], r.center[1]));
   const n = nearestStore(r.center[0], r.center[1]);
-  const km = n.meters < 1000 ? `約${Math.round(n.meters / 10) * 10}m` : `約${(n.meters / 1000).toFixed(1)}km`;
-  return `<h3>この周辺</h3><p class="note">${m && m[0] ? `500m四方に約${m[0].toLocaleString()}世帯・65歳以上${m[1].toLocaleString()}人・15歳未満${(m[3] || 0).toLocaleString()}人（2020年国勢調査）` : 'この区画の統計はありません'}<br>
-    スーパーまで直線${km}${n.store[2] ? `（${esc(n.store[2])}）` : ''}</p>`;
+  const km = n.meters < 1000 ? `約${Math.round(n.meters / 100) * 100}m` : `約${(n.meters / 1000).toFixed(1)}km`;
+  const store = n.store[3] ? '近くのスーパーは位置を番地まで確認できていないため、距離は出していません' : `スーパーまで直線${km}${n.store[2] ? `（${esc(n.store[2])}）` : ''}`;
+  return `<h3>この周辺</h3><p class="note">${m && m[0] ? `500m四方に約${m[0].toLocaleString()}世帯・65歳以上${m[1].toLocaleString()}人・15歳未満${(m[3] || 0).toLocaleString()}人（2020年国勢調査）` : 'この区画の統計はありません'}<br>${store}</p>`;
 }
 function areaHouseholds() {
   if (!meshRows || !area.length) return 0;
@@ -671,16 +683,16 @@ function openMenu() {
     <div class="field"><span>投函済みの濃い色にする期間</span><select id="mCycle">${[14, 30, 60, 90, 180].map(n => `<option value="${n}" ${n === cycleDays() ? 'selected' : ''}>${n}日以内</option>`).join('')}</select></div>
     <h3>地図の追加情報</h3>
     <div class="field"><span>世帯数の濃淡</span><button class="sw" id="swHh" aria-pressed="${overlay === 'hh'}">${overlay === 'hh' ? 'ON' : 'OFF'}</button></div>
-    <div class="field"><span>スーパーの徒歩圏</span><button class="sw" id="swFar" aria-pressed="${overlay === 'far'}">${overlay === 'far' ? 'ON' : 'OFF'}</button></div>
+    <div class="field"><span>世帯数の色を付ける下限</span><select id="mHhMin" aria-label="世帯数の下限">${HH_CHOICES.map(n => `<option value="${n}" ${n === hhMin() ? 'selected' : ''}>1km四方 ${n}世帯以上</option>`).join('')}</select></div>
+    <p class="note" id="hhShare" style="margin-top:8px">${hhShare()}</p>
     <div class="field"><span>スーパーまでの車の距離</span><button class="sw" id="swCar" aria-pressed="${overlay === 'car'}">${overlay === 'car' ? 'ON' : 'OFF'}</button></div>
     <div class="field"><span>家を押したときの周辺情報</span><button class="sw" id="swNear" aria-pressed="${nearInfoOn()}">${nearInfoOn() ? 'ON' : 'OFF'}</button></div>
-    <p class="note">スーパーの表示は、色が濃いほど近く、薄いほど遠い場所です。人が住んでいない区画には色が付きません。</p>
+    <p class="note">車の距離は、色が濃いほどスーパーに近く、薄いほど遠い場所です。人が住んでいない区画には色が付きません。</p>
     <h3>データの根拠</h3>
-    <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。100世帯以上の1km四方は区画の上位40%で世帯の92%、1,000世帯以上は上位7%で世帯の47%が住んでいます。<br>
-    スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けがあります。コンビニとドラッグストアは含みません。住所の一部は町名までの位置です。<br>
-    縮小時の灰色：令和2年国勢調査の250mメッシュの世帯数です。建物そのものではなく、世帯のある場所を示します。世帯の少ない区画は秘匿のため隣に合算されている場合があります。<br>
-    徒歩圏：800mは国土交通省「都市構造の評価に関するハンドブック」の生活サービス施設の徒歩圏です。高齢の方の食料品アクセスの基準はより短い500mです（農林水産政策研究所）。<br>
-    車の距離：公的な基準はないので、3kmと5kmは県の世帯のうち店から遠い側の約10%と約5%にあたる目安です。距離はどちらも直線で、道のりはこれより長くなります</p>
+    <p class="note">世帯数：令和2年国勢調査の500mメッシュ（e-Stat）を集計。三重県の合計は736,935世帯で、県公表の確定値742,598世帯の99.2%です。<br>
+    スーパー：主要12グループの公式店舗一覧192店（2026年11月4日確認）にOpenStreetMapを統合。スーパーサンシ、バロー、マルヤス、Aコープなど公式一覧を取得できなかった店はOpenStreetMapの情報のため、抜けや閉店があります。コンビニとドラッグストアは含みません。住所から番地まで位置を確認できた店のずれは中央値35mでした。町名までしか分からない店は約1kmずれるので、地図に点を出さず、距離の計算にだけ使っています。<br>
+    車の距離：公的な基準はないので、3kmと5kmは県の世帯のうち店から遠い側の約10%と約5%にあたる目安です。店を2割抜く試験で判定が変わる世帯は約3%でした。直線距離なので、道のりはこれより長くなります。<br>
+    徒歩圏は表示していません。区画が500m四方で粗く、基準の800mの前後350mに世帯の43%が入るため、判定に足る精度がないからです</p>
     <h3>バックアップ</h3>
     <p class="sub">記録はこのスマホの中だけにあります。機種変更やブラウザのデータ消去に備えて、ときどき保存してください。${last ? `前回は${esc(short(last))}に保存しました。` : ''}</p>
     <button class="btn" id="mExport">バックアップを保存</button>
@@ -689,7 +701,11 @@ function openMenu() {
   $('mCycle').onchange = e => { try { localStorage.setItem(KEY_CYCLE, e.target.value); } catch (x) {} setLegend(); draw(); };
   $('mArea').onclick = openArea;
   $('swHh').onclick = () => { setOverlay(overlay === 'hh' ? '' : 'hh'); openMenu(); };
-  $('swFar').onclick = () => { setOverlay(overlay === 'far' ? '' : 'far'); openMenu(); };
+  $('mHhMin').onchange = e => {
+    try { localStorage.setItem(KEY_HHMIN, e.target.value); } catch (x) {}
+    if (overlay === 'hh') setOverlay('hh');
+    $('hhShare').textContent = hhShare();
+  };
   $('swCar').onclick = () => { setOverlay(overlay === 'car' ? '' : 'car'); openMenu(); };
   $('swNear').onclick = () => { try { localStorage.setItem(NEAR_INFO_KEY, nearInfoOn() ? 'off' : 'on'); } catch (e) {} openMenu(); };
   if ($('mFit')) $('mFit').onclick = () => { closeSheet(); fitArea(); };
@@ -769,7 +785,6 @@ $('modePost').onclick = () => setMode('post');
 $('modeNg').onclick = () => setMode('ng');
 $('modeUser').onclick = () => setMode('user');
 $('ovHh').onclick = () => setOverlay(overlay === 'hh' ? '' : 'hh');
-$('ovFar').onclick = () => setOverlay(overlay === 'far' ? '' : 'far');
 $('ovCar').onclick = () => setOverlay(overlay === 'car' ? '' : 'car');
 $('legend').onclick = () => {
   const closed = $('legend').classList.toggle('closed');
@@ -787,7 +802,7 @@ map.on('load', () => {
   loadOverlayData().then(() => {
     let o = ''; try { o = localStorage.getItem(KEY_OVERLAY) || ''; } catch (e) {}
     if (o) setOverlay(o);
-  }).catch(() => { $('ovHh').disabled = $('ovFar').disabled = true; });
+  }).catch(() => { $('ovHh').disabled = $('ovCar').disabled = true; });
   loadCities().then(() => {
     if (!hasSavedView) { if (area.length) fitArea(); else geo.trigger(); }
     if (!area.length && !live().length) toast('メニューから担当エリアを登録できます');
